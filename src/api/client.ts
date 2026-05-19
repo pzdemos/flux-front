@@ -1,0 +1,291 @@
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+
+const API_BASE_URL = 'https://www.haoaiganfan.top/flux/api';
+
+export const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 60000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+// Request interceptor - add auth token
+apiClient.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const token = localStorage.getItem('flux_token');
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Response interceptor - handle errors
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ error?: string; message?: string }>) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('flux_token');
+      localStorage.removeItem('flux_auth');
+      window.location.href = '/#/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+// ===== Auth API =====
+export const authApi = {
+  login: (username: string, password: string) =>
+    apiClient.post('/auth/login', { username, password }),
+  register: (username: string, password: string) =>
+    apiClient.post('/auth/register', { username, password }),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    apiClient.post('/auth/change-password', { oldPassword, newPassword }),
+};
+
+// ===== File Management API =====
+export const fileApi = {
+  /** 1. 查询目录内容 */
+  list: (path: string) =>
+    apiClient.get('/files/list', { params: { path } }),
+
+  /** 2. 创建目录 */
+  mkdir: (path: string, name: string) =>
+    apiClient.post('/files/mkdir', { path, name }),
+
+  /** 3. 删除目录 */
+  rmdir: (path: string) =>
+    apiClient.delete('/files/rmdir', { params: { path } }),
+
+  /** 4. 移动 */
+  move: (from: string, to: string) =>
+    apiClient.post('/files/move', { from, to }),
+
+  /** 5. 复制 */
+  copy: (from: string, to: string) =>
+    apiClient.post('/files/copy', { from, to }),
+
+  /** 6. 重命名 */
+  rename: (path: string, newName: string) =>
+    apiClient.post('/files/rename', { path, newName }),
+
+  /** 7. 读取文件 */
+  read: (path: string) =>
+    apiClient.get('/files/read', { params: { path } }),
+
+  /** 8. 写入文件 */
+  write: (path: string, content: string, encoding?: string) =>
+    apiClient.post('/files/write', { path, content, encoding: encoding || 'utf-8' }),
+
+  /** 9. 删除文件（支持软删除） */
+  delete: (path: string, soft?: boolean) =>
+    apiClient.delete('/files/delete', { params: { path, soft: soft !== false } }),
+
+  /** 10. 获取文件权限 */
+  getPermissions: (path: string) =>
+    apiClient.get('/files/permissions', { params: { path } }),
+
+  /** 11. 修改文件权限 */
+  setPermissions: (path: string, permissions: string) =>
+    apiClient.put('/files/permissions', { path, permissions }),
+
+  /** 12. 搜索文件 */
+  search: (query: string, searchPath?: string) =>
+    apiClient.get('/files/search', { params: { query, path: searchPath || '/' } }),
+
+  /** 13. 批量删除 */
+  batchDelete: (paths: string[]) =>
+    apiClient.delete('/files/batch', { data: { paths } }),
+
+  /** 14. 批量重命名 */
+  batchRename: (items: string[], pattern: string, replacement: string, useRegex?: boolean) =>
+    apiClient.post('/files/rename/batch', { items, pattern, replacement, useRegex: useRegex || false }),
+};
+
+// ===== Upload/Download API =====
+export const uploadApi = {
+  /** 1. 单文件上传 */
+  upload: (file: File, path?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (path) formData.append('path', path);
+    return apiClient.post('/files/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        const percent = progressEvent.total ? Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
+        console.log(`Upload progress: ${percent}%`);
+      },
+    });
+  },
+
+  /** 2. 多文件上传 */
+  uploadMultiple: (files: File[], path?: string) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('files', f));
+    if (path) formData.append('path', path);
+    return apiClient.post('/files/upload/multiple', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  /** 3. 分片上传 */
+  uploadChunk: (chunk: Blob, identifier: string, chunkNumber: number, totalChunks: number, filename: string, path?: string) => {
+    const formData = new FormData();
+    formData.append('chunk', chunk);
+    formData.append('identifier', identifier);
+    formData.append('chunkNumber', String(chunkNumber));
+    formData.append('totalChunks', String(totalChunks));
+    formData.append('filename', filename);
+    if (path) formData.append('path', path);
+    return apiClient.post('/files/upload/chunk', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  /** 4. 查询分片上传状态 */
+  getChunkStatus: (identifier: string) =>
+    apiClient.get(`/files/upload/chunks/${identifier}`),
+
+  /** 5. 合并分片 */
+  mergeChunks: (identifier: string, path?: string) =>
+    apiClient.post('/files/upload/merge', { identifier, path }),
+
+  /** 6. 取消分片上传 */
+  cancelChunks: (identifier: string) =>
+    apiClient.delete(`/files/upload/chunks/${identifier}`),
+};
+
+export const downloadApi = {
+  /** 7. 下载文件 */
+  download: (path: string) =>
+    `${API_BASE_URL}/files/download?path=${encodeURIComponent(path)}`,
+
+  /** 8. 文件夹打包下载 */
+  downloadFolder: (path: string) =>
+    `${API_BASE_URL}/files/download/folder?path=${encodeURIComponent(path)}`,
+
+  /** 9. 远程下载 */
+  remoteDownload: (url: string, filename: string, path?: string) =>
+    apiClient.post('/files/download/remote', { url, filename, path }),
+};
+
+// ===== Compress/Extract API =====
+export const compressApi = {
+  /** 1. ZIP 压缩 */
+  zip: (paths: string[], outputFilename: string) =>
+    apiClient.post('/files/compress/zip', { paths, outputFilename }),
+
+  /** 2. TAR.GZ 压缩 */
+  tar: (paths: string[], outputFilename: string) =>
+    apiClient.post('/files/compress/tar', { paths, outputFilename }),
+
+  /** 3. ZIP 解压 */
+  extractZip: (path: string, outputDir: string) =>
+    apiClient.post('/files/extract/zip', { path, outputDir }),
+
+  /** 4. TAR.GZ 解压 */
+  extractTar: (path: string, outputDir: string) =>
+    apiClient.post('/files/extract/tar', { path, outputDir }),
+};
+
+// ===== Share API =====
+export const shareApi = {
+  /** 1. 创建分享 */
+  create: (path: string, expiresIn?: number, password?: string, maxDownloads?: number) =>
+    apiClient.post('/files/share/create', { path, expiresIn: expiresIn || 0, password, maxDownloads }),
+
+  /** 2. 分享列表 */
+  list: () =>
+    apiClient.get('/files/share/list'),
+
+  /** 3. 分享信息 */
+  info: (token: string) =>
+    apiClient.get(`/files/share/info/${token}`),
+
+  /** 4. 删除分享 */
+  delete: (token: string) =>
+    apiClient.delete(`/files/share/${token}`),
+};
+
+// ===== Trash API =====
+export const trashApi = {
+  /** 1. 查看回收站 */
+  list: () =>
+    apiClient.get('/files/trash'),
+
+  /** 2. 恢复文件 */
+  restore: (id: string) =>
+    apiClient.post(`/files/trash/${id}/restore`),
+
+  /** 3. 永久删除 */
+  permanentDelete: (id: string) =>
+    apiClient.delete(`/files/trash/${id}`),
+
+  /** 4. 清空回收站 */
+  clear: () =>
+    apiClient.delete('/files/trash'),
+};
+
+// ===== System Tools API =====
+export const systemApi = {
+  /** 1. 文件预览 */
+  preview: (path: string, width?: number, height?: number) =>
+    apiClient.get('/files/preview', { params: { path, width, height } }),
+
+  /** 2. 缩略图 */
+  thumbnail: (path: string, size?: number) =>
+    apiClient.get('/files/preview/thumbnail', { params: { path, size }, responseType: 'blob' }),
+
+  /** 3. 磁盘空间统计 */
+  diskUsage: (path: string) =>
+    apiClient.get('/files/disk/usage', { params: { path } }),
+
+  /** 4. 系统磁盘信息 */
+  diskSystem: () =>
+    apiClient.get('/files/disk/system'),
+
+  /** 5. 文件去重 */
+  duplicates: (path: string, algorithm?: string) =>
+    apiClient.get('/files/duplicates', { params: { path, algorithm: algorithm || 'md5' } }),
+
+  /** 6. 计算校验和 */
+  checksum: (path: string, algorithm?: string) =>
+    apiClient.get('/files/checksum', { params: { path, algorithm: algorithm || 'sha256' } }),
+
+  /** 7. 验证校验和 */
+  verifyChecksum: (path: string, checksum: string, algorithm?: string) =>
+    apiClient.post('/files/checksum/verify', { path, checksum, algorithm: algorithm || 'sha256' }),
+
+  /** 8. 修改根路径 */
+  setRoot: (root: string) =>
+    apiClient.put('/files/root', { root }),
+
+  /** 9. 获取当前根路径 */
+  getRoot: () =>
+    apiClient.get('/files/root'),
+};
+
+// ===== Legacy Stub APIs (for old pages) =====
+export const databaseApi = {
+  listKeys: () => apiClient.get('/db/keys'),
+  getValue: (key: string) => apiClient.get('/db/get', { params: { key } }),
+  setValue: (key: string, value: string) => apiClient.post('/db/set', { key, value }),
+  deleteKey: (key: string) => apiClient.delete('/db/del', { params: { key } }),
+};
+
+export const nginxApi = {
+  getStatus: () => apiClient.get('/nginx/status'),
+  getConfig: () => apiClient.get('/nginx/config'),
+  saveConfig: (config: string) => apiClient.post('/nginx/config', { config }),
+  reload: () => apiClient.post('/nginx/reload'),
+  getLogs: (type: string, lines: number) => apiClient.get('/nginx/logs', { params: { type, lines } }),
+};
+
+export const sslApi = {
+  getCertificates: () => apiClient.get('/ssl/certificates'),
+  requestLetsEncrypt: (domain: string) => apiClient.post('/ssl/letsencrypt', { domain }),
+  uploadCloudflare: (domain: string, cert: string, key: string) => apiClient.post('/ssl/cloudflare', { domain, cert, key }),
+  deleteCertificate: (domain: string) => apiClient.delete(`/ssl/certificates/${domain}`),
+};
+
+export default apiClient;
