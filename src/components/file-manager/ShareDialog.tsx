@@ -27,19 +27,65 @@ export default function ShareDialog({ filePath, fileName, onClose }: ShareDialog
         password || undefined,
         parseInt(maxDownloads) || undefined
       );
-      setResult(res.data);
-      addNotification({ type: 'success', message: '分享链接已创建' });
-    } catch {
-      addNotification({ type: 'error', message: '创建分享失败' });
+
+      // Handle different response formats
+      const data = res.data;
+      console.log('[ShareDialog] Create response:', data);
+
+      // Check if response has the expected fields
+      if (data && (data.shareToken || data.share_url)) {
+        const token = data.shareToken || data.share_token || '';
+        // Format friendly share URL
+        const friendlyUrl = `${window.location.origin}/#/share/${token}`;
+        setResult({
+          message: data.message || '分享创建成功',
+          shareToken: token,
+          shareUrl: friendlyUrl,
+          expiresAt: data.expiresAt || data.expires_at || '',
+          password: !!data.password && !!data.has_password
+        });
+        addNotification({ type: 'success', message: '分享链接已创建' });
+      } else {
+        throw new Error('响应格式不正确');
+      }
+    } catch (err: unknown) {
+      console.error('[ShareDialog] Create error:', err);
+      const msg = err instanceof Error ? err.message : '创建分享失败';
+      addNotification({ type: 'error', message: msg });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!result) return;
-    navigator.clipboard.writeText(result.shareUrl);
-    addNotification({ type: 'success', message: '链接已复制' });
+    try {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(result.shareUrl);
+        addNotification({ type: 'success', message: '链接已复制' });
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = result.shareUrl;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          addNotification({ type: 'success', message: '链接已复制' });
+        } catch (err) {
+          throw err;
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+    } catch (err) {
+      console.error('[ShareDialog] Copy failed:', err);
+      addNotification({ type: 'error', message: '复制失败' });
+      window.prompt('请手动复制分享链接:', result.shareUrl);
+    }
   };
 
   return (

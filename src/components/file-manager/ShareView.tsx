@@ -13,8 +13,20 @@ export default function ShareView() {
     setLoading(true);
     try {
       const res = await shareApi.list();
-      setShares(res.data || []);
-    } catch {
+      // Ensure shares is always an array
+      const data = res.data;
+      if (Array.isArray(data)) {
+        setShares(data);
+      } else if (data && typeof data === 'object' && 'items' in data && Array.isArray(data.items)) {
+        setShares(data.items);
+      } else if (data && typeof data === 'object' && 'shares' in data && Array.isArray(data.shares)) {
+        setShares(data.shares);
+      } else {
+        console.warn('[ShareView] Unexpected data format:', data);
+        setShares([]);
+      }
+    } catch (err) {
+      console.error('[ShareView] Load error:', err);
       addNotification({ type: 'error', message: '获取分享列表失败' });
       setShares([]);
     } finally {
@@ -36,10 +48,37 @@ export default function ShareView() {
     }
   };
 
-  const handleCopy = (shareToken: string) => {
-    const url = `${window.location.origin}/#/share/${shareToken}`;
-    navigator.clipboard.writeText(url);
-    addNotification({ type: 'success', message: '分享链接已复制' });
+  const handleCopy = async (shareToken: string) => {
+    // Use friendly share URL format
+    const friendlyUrl = `${window.location.origin}/#/share/${shareToken}`;
+    try {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(friendlyUrl);
+        addNotification({ type: 'success', message: '分享链接已复制' });
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = friendlyUrl;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          addNotification({ type: 'success', message: '分享链接已复制' });
+        } catch (err) {
+          throw err;
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+    } catch (err) {
+      console.error('[ShareView] Copy failed:', err);
+      addNotification({ type: 'error', message: '复制失败，请手动复制' });
+      // Show the URL in a prompt as last resort
+      window.prompt('请手动复制分享链接:', friendlyUrl);
+    }
   };
 
   return (
@@ -55,10 +94,12 @@ export default function ShareView() {
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-emerald-500" /></div>
       ) : shares.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-500">
-          <Share2 className="w-12 h-12 mb-2 opacity-30" />
-          <p>暂无分享</p>
-          <p className="text-xs mt-1">右键点击文件可创建分享链接</p>
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="text-center">
+            <Share2 className="w-16 h-16 mx-auto mb-3 text-zinc-600" />
+            <p className="text-zinc-400 text-base">暂无分享</p>
+            <p className="text-zinc-500 text-sm mt-1">右键点击文件可创建分享链接</p>
+          </div>
         </div>
       ) : (
         <div className="flex-1 overflow-auto space-y-2">

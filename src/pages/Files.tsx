@@ -1,20 +1,22 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { fileApi, uploadApi, downloadApi } from '@/api/client';
+import { fileApi, uploadApi, apiClient } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import FileEditor from '@/components/file-manager/FileEditor';
 import ShareDialog from '@/components/file-manager/ShareDialog';
 import CompressDialog from '@/components/file-manager/CompressDialog';
 import ExtractDialog from '@/components/file-manager/ExtractDialog';
-import MoveCopyDialog from '@/components/file-manager/MoveCopyDialog';
 import TrashView from '@/components/file-manager/TrashView';
 import ShareView from '@/components/file-manager/ShareView';
+import PasteBar from '@/components/file-manager/PasteBar';
 import ToolsView from '@/components/file-manager/ToolsView';
+import SelectionBar from '@/components/file-manager/SelectionBar';
+import ActionSheet from '@/components/file-manager/ActionSheet';
 import {
   Folder, File as FileIcon, ChevronRight, ChevronUp, Home,
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy, Share2,
-  FileArchive, HardDrive, Wrench
+  FileArchive, Wrench, Plus, X
 } from 'lucide-react';
 import type { FileItem, RawFileItem } from '@/types';
 
@@ -56,6 +58,38 @@ export default function FilesPage() {
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
 
+  // Calculate context menu position to prevent overflow
+  const getContextMenuPosition = (x: number, y: number) => {
+    const menuWidth = 192; // w-48 = 12rem = 192px
+    const menuHeight = 400; // approximate max height
+    const padding = 8;
+
+    let adjustedX = x;
+    let adjustedY = y;
+
+    // Check right boundary
+    if (x + menuWidth > window.innerWidth - padding) {
+      adjustedX = window.innerWidth - menuWidth - padding;
+    }
+
+    // Check left boundary
+    if (adjustedX < padding) {
+      adjustedX = padding;
+    }
+
+    // Check bottom boundary
+    if (y + menuHeight > window.innerHeight - padding) {
+      adjustedY = window.innerHeight - menuHeight - padding;
+    }
+
+    // Check top boundary
+    if (adjustedY < padding) {
+      adjustedY = padding;
+    }
+
+    return { x: adjustedX, y: adjustedY };
+  };
+
   // Inline rename
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -76,15 +110,24 @@ export default function FilesPage() {
   const [shareFile, setShareFile] = useState<FileItem | null>(null);
   const [compressFiles, setCompressFiles] = useState<string[] | null>(null);
   const [extractFile, setExtractFile] = useState<FileItem | null>(null);
-  const [moveCopyMode, setMoveCopyMode] = useState<'move' | 'copy' | null>(null);
 
   // Drag & drop
   const [dragOver, setDragOver] = useState(false);
+
+  // Action sheet for mobile
+  const [actionSheetFile, setActionSheetFile] = useState<FileItem | null>(null);
+  const [showActionSheet, setShowActionSheet] = useState(false);
+
+  // FAB menu
+  const [showFabMenu, setShowFabMenu] = useState(false);
 
   const isMobile = useAppStore((s) => s.isMobile);
   const viewMode = useAppStore((s) => s.viewMode);
   const setViewMode = useAppStore((s) => s.setViewMode);
   const addNotification = useAppStore((s) => s.addNotification);
+  const clipboard = useAppStore((s) => s.clipboard);
+  const setClipboard = useAppStore((s) => s.setClipboard);
+  const clearClipboard = useAppStore((s) => s.clearClipboard);
 
   const loadFiles = useCallback(async (p: string) => {
     setLoading(true);
@@ -246,16 +289,56 @@ export default function FilesPage() {
     setShowNewFolderDialog(false);
   };
 
-  const handleDownload = (file: FileItem) => {
-    const url = downloadApi.download(file.path);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
-    addNotification({ type: 'success', message: `开始下载: ${file.name}` });
+  const handleDownload = async (file: FileItem) => {
+    try {
+      addNotification({ type: 'info', message: `正在准备下载: ${file.name}` });
+
+      // Use axios to download with authentication
+      const response = await apiClient.get('/files/download', {
+        params: { path: file.path },
+        responseType: 'blob',
+      });
+
+      // Create blob URL and trigger download
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      addNotification({ type: 'success', message: `下载完成: ${file.name}` });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '下载失败';
+      addNotification({ type: 'error', message: `下载失败: ${msg}` });
+    }
   };
 
   const selectedPaths = Array.from(selected).map(name => path === '/' ? `/${name}` : `${path}/${name}`);
+
+  // Paste functionality
+  const handlePaste = async (paths: string[], mode: 'move' | 'copy', targetPath: string) => {
+    try {
+      for (const fromPath of paths) {
+        const name = fromPath.split('/').pop() || '';
+        const toPath = targetPath === '/' ? `/${name}` : `${targetPath}/${name}`;
+        if (mode === 'move') {
+          await fileApi.move(fromPath, toPath);
+        } else {
+          await fileApi.copy(fromPath, toPath);
+        }
+      }
+      addNotification({ type: 'success', message: mode === 'move' ? '移动完成' : '复制完成' });
+      loadFiles(path);
+      setSelected(new Set());
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      addNotification({ type: 'error', message: `${mode === 'move' ? '移动' : '复制'}失败: ${msg}` });
+    }
+  };
 
   // Drag & drop
   const onDragOver = (e: React.DragEvent) => {
@@ -308,7 +391,7 @@ export default function FilesPage() {
   return (
     <div className="flex h-full min-h-0" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       {/* ===== File list panel ===== */}
-      <div className={`flex flex-col ${editingFile && !isMobile ? 'w-1/2 border-r border-zinc-800' : 'w-full'}`}>
+      <div className="flex flex-col w-full">
 
         {/* View mode tabs */}
         <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800 bg-zinc-900/50 shrink-0">
@@ -331,7 +414,7 @@ export default function FilesPage() {
 
         {/* Render different views */}
         {viewMode !== 'files' ? (
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 min-h-0">
             {viewMode === 'trash' && <TrashView />}
             {viewMode === 'shares' && <ShareView />}
             {viewMode === 'tools' && <ToolsView />}
@@ -420,25 +503,45 @@ export default function FilesPage() {
             )}
 
             {/* Batch delete bar (when items selected) */}
-            {selected.size > 0 && (
-              <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-red-500/10">
-                <span className="text-sm text-red-400">已选择 {selected.size} 项</span>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setCompressFiles(selectedPaths)} className="flex items-center gap-1 px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs">
-                    <FileArchive className="w-3.5 h-3.5" />压缩
-                  </button>
-                  <button onClick={() => setMoveCopyMode('move')} className="flex items-center gap-1 px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-xs">
-                    <Scissors className="w-3.5 h-3.5" />移动
-                  </button>
-                  <button onClick={() => setMoveCopyMode('copy')} className="flex items-center gap-1 px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-xs">
-                    <Copy className="w-3.5 h-3.5" />复制
-                  </button>
-                  <button onClick={() => handleDelete(Array.from(selected))} className="flex items-center gap-1 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white text-xs">
-                    <Trash2 className="w-3.5 h-3.5" />删除
-                  </button>
-                  <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 rounded bg-zinc-700 text-zinc-300 text-xs">取消</button>
-                </div>
-              </div>
+            {selected.size > 0 && !isMobile && (
+              <SelectionBar
+                count={selected.size}
+                onCancel={() => setSelected(new Set())}
+                onDelete={() => handleDelete(Array.from(selected))}
+                onMove={() => setClipboard(selectedPaths, 'move')}
+                onCopy={() => setClipboard(selectedPaths, 'copy')}
+                onCompress={() => setCompressFiles(selectedPaths)}
+                onShare={() => {
+                  const name = Array.from(selected)[0];
+                  if (name) {
+                    const file = files.find(f => f.name === name);
+                    if (file) setShareFile(file);
+                  }
+                }}
+                onRename={() => {
+                  const name = Array.from(selected)[0];
+                  if (name) {
+                    setRenaming(name);
+                    setRenameValue(name);
+                  }
+                }}
+                onDownload={() => {
+                  const name = Array.from(selected)[0];
+                  if (name) {
+                    const file = files.find(f => f.name === name);
+                    if (file) handleDownload(file);
+                  }
+                }}
+              />
+            )}
+
+            {/* Paste bar when clipboard has content */}
+            {clipboard && (
+              <PasteBar
+                currentPath={path}
+                onPaste={handlePaste}
+                onClear={clearClipboard}
+              />
             )}
 
             {/* File List Header */}
@@ -462,7 +565,11 @@ export default function FilesPage() {
                   <div key={file.name}
                     className={`grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/40
                       ${selected.has(file.name) ? 'bg-emerald-500/10 border-l-2 border-l-emerald-500' : ''}`}
-                    onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, file }); }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      const pos = getContextMenuPosition(e.clientX, e.clientY);
+                      setContextMenu({ x: pos.x, y: pos.y, file });
+                    }}
                   >
                     {/* Icon - clickable */}
                     <div className="w-8 flex items-center justify-center cursor-pointer" onClick={() => toggleSelect(file.name)} onDoubleClick={() => navigate(file)}>
@@ -496,7 +603,23 @@ export default function FilesPage() {
                     <span className="w-20 text-right text-xs text-zinc-500 font-mono hidden md:block select-none cursor-pointer hover:text-emerald-400" onClick={() => { setChmodding(file.name); setChmodValue(file.permissions); }}>{file.permissions}</span>
 
                     {/* More button - desktop only */}
-                    <button className="w-8 hidden md:flex items-center justify-center text-zinc-500 hover:text-white rounded hover:bg-zinc-800" onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, file }); }}>
+                    <button
+                      ref={(el) => {
+                        if (el) {
+                          el.onclick = (e) => {
+                            e.stopPropagation();
+                            const rect = el.getBoundingClientRect();
+                            const pos = getContextMenuPosition(rect.left, rect.bottom + 4);
+                            setContextMenu({
+                              x: pos.x,
+                              y: pos.y,
+                              file
+                            });
+                          };
+                        }
+                      }}
+                      className="w-8 hidden md:flex items-center justify-center text-zinc-500 hover:text-white rounded hover:bg-zinc-800"
+                    >
                       <MoreVertical className="w-4 h-4" />
                     </button>
                   </div>
@@ -506,12 +629,98 @@ export default function FilesPage() {
 
             {/* Mobile bottom bar */}
             {isMobile && (
-              <div className="flex items-center justify-around px-4 py-2.5 border-t border-zinc-800 bg-zinc-900 shrink-0">
-                <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-emerald-400"><Upload className="w-5 h-5" /><span className="text-[10px]">上传</span></button>
-                <button onClick={() => { const name = Array.from(selected)[0]; if (name) { setRenaming(name); setRenameValue(name); } }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-0.5 ${selected.size === 1 ? 'text-zinc-400 hover:text-emerald-400' : 'text-zinc-600'}`}><Edit3 className="w-5 h-5" /><span className="text-[10px]">重命名</span></button>
-                <button onClick={() => { const name = Array.from(selected)[0]; if (name) { setChmodding(name); setChmodValue(''); } }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-0.5 ${selected.size === 1 ? 'text-zinc-400 hover:text-emerald-400' : 'text-zinc-600'}`}><Lock className="w-5 h-5" /><span className="text-[10px]">权限</span></button>
-                <button onClick={() => selected.size > 0 && handleDelete(Array.from(selected))} className={`flex flex-col items-center gap-0.5 ${selected.size > 0 ? 'text-zinc-400 hover:text-red-400' : 'text-zinc-600'}`}><Trash2 className="w-5 h-5" /><span className="text-[10px]">删除</span></button>
-              </div>
+              <>
+                {selected.size > 0 ? (
+                  <div className="fixed bottom-0 left-0 right-0 z-30 bg-zinc-900 border-t border-zinc-800 px-2 py-3 flex gap-1 overflow-x-auto">
+                    <button onClick={() => handleDelete(Array.from(selected))} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-zinc-800 shrink-0">
+                      <Trash2 className="w-5 h-5" /><span className="text-[10px]">删除</span>
+                    </button>
+                    <button onClick={() => setClipboard(selectedPaths, 'move')} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 shrink-0">
+                      <Scissors className="w-5 h-5" /><span className="text-[10px]">移动</span>
+                    </button>
+                    <button onClick={() => setClipboard(selectedPaths, 'copy')} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-sky-400 hover:bg-zinc-800 shrink-0">
+                      <Copy className="w-5 h-5" /><span className="text-[10px]">复制</span>
+                    </button>
+                    <button onClick={() => setCompressFiles(selectedPaths)} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 shrink-0">
+                      <FileArchive className="w-5 h-5" /><span className="text-[10px]">压缩</span>
+                    </button>
+                    <button onClick={() => {
+                      const name = Array.from(selected)[0];
+                      if (name) {
+                        const file = files.find(f => f.name === name);
+                        if (file) setShareFile(file);
+                      }
+                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
+                      <Share2 className="w-5 h-5" /><span className="text-[10px]">分享</span>
+                    </button>
+                    <button onClick={() => {
+                      const name = Array.from(selected)[0];
+                      if (name) { setRenaming(name); setRenameValue(name); }
+                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
+                      <Edit3 className="w-5 h-5" /><span className="text-[10px]">重命名</span>
+                    </button>
+                    <button onClick={() => {
+                      const name = Array.from(selected)[0];
+                      if (name) { setChmodding(name); setChmodValue(''); }
+                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
+                      <Lock className="w-5 h-5" /><span className="text-[10px]">权限</span>
+                    </button>
+                    <button onClick={() => {
+                      const name = Array.from(selected)[0];
+                      if (name) {
+                        const file = files.find(f => f.name === name);
+                        if (file) handleDownload(file);
+                      }
+                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
+                      <Download className="w-5 h-5" /><span className="text-[10px]">下载</span>
+                    </button>
+                    <button onClick={() => {
+                      const name = Array.from(selected)[0];
+                      if (name) {
+                        const file = files.find(f => f.name === name);
+                        if (file) {
+                          setActionSheetFile(file);
+                          setShowActionSheet(true);
+                        }
+                      }
+                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
+                      <MoreVertical className="w-5 h-5" /><span className="text-[10px]">更多</span>
+                    </button>
+                    <button onClick={() => setSelected(new Set())} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 shrink-0">
+                      <X className="w-5 h-5" /><span className="text-[10px]">取消</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-around px-4 py-2.5 border-t border-zinc-800 bg-zinc-900 shrink-0">
+                    <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-emerald-400">
+                      <Upload className="w-5 h-5" /><span className="text-[10px]">上传</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* FAB Button */}
+                <button
+                  onClick={() => setShowFabMenu(!showFabMenu)}
+                  className="fixed bottom-20 right-4 w-14 h-14 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center hover:bg-emerald-500 transition-colors z-20"
+                >
+                  {showFabMenu ? <X className="w-6 h-6" /> : <Plus className="w-6 h-6" />}
+                </button>
+
+                {/* FAB Menu */}
+                {showFabMenu && (
+                  <div className="fixed bottom-36 right-4 z-20 flex flex-col gap-2">
+                    <button onClick={() => { setShowNewFolderDialog(true); setNewName(''); setShowFabMenu(false); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 text-white shadow-lg hover:bg-zinc-700 transition-colors">
+                      <FolderPlus className="w-5 h-5" /><span className="text-sm">新建文件夹</span>
+                    </button>
+                    <button onClick={() => { setShowNewFileDialog(true); setNewName(''); setShowFabMenu(false); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 text-white shadow-lg hover:bg-zinc-700 transition-colors">
+                      <FilePlus className="w-5 h-5" /><span className="text-sm">新建文件</span>
+                    </button>
+                    <button onClick={() => { fileInputRef.current?.click(); setShowFabMenu(false); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 text-white shadow-lg hover:bg-zinc-700 transition-colors">
+                      <Upload className="w-5 h-5" /><span className="text-sm">上传文件</span>
+                    </button>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Hidden file input for upload */}
@@ -520,25 +729,51 @@ export default function FilesPage() {
         )}
       </div>
 
-      {/* Editor panel */}
+      {/* Editor modal for desktop */}
       {!isMobile && editingFile && (
-        <div className="w-1/2 flex flex-col min-h-0">
-          <FileEditor filePath={editingFile.path} fileName={editingFile.name} onClose={() => setEditingFile(null)} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditingFile(null)}>
+          <div className="w-[90vw] h-[85vh] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <FileIcon className="w-5 h-5 text-zinc-400" />
+                <h3 className="text-base font-semibold text-white truncate">{editingFile.name}</h3>
+              </div>
+              <button
+                onClick={() => setEditingFile(null)}
+                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <FileEditor filePath={editingFile.path} fileName={editingFile.name} onClose={() => setEditingFile(null)} />
+            </div>
+          </div>
         </div>
       )}
 
       {/* ===== Context Menu ===== */}
       {contextMenu && (
         <div className="fixed z-50 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 w-48" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          {/* 打开/编辑 */}
           <button onClick={() => { navigate(contextMenu.file); setContextMenu(null); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             {contextMenu.file.isDirectory ? <Folder className="w-4 h-4" /> : <FileIcon className="w-4 h-4" />}{contextMenu.file.isDirectory ? '打开' : '编辑'}
           </button>
+
+          {/* 快速操作 */}
           <button onClick={() => { handleDownload(contextMenu.file); setContextMenu(null); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Download className="w-4 h-4" />下载
           </button>
+          <button onClick={() => { setShareFile(contextMenu.file); setContextMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
+            <Share2 className="w-4 h-4" />分享
+          </button>
+
           <div className="border-t border-zinc-700 my-1" />
+
+          {/* 管理操作 */}
           <button onClick={() => { setRenaming(contextMenu.file.name); setRenameValue(contextMenu.file.name); setContextMenu(null); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Edit3 className="w-4 h-4" />重命名
@@ -547,31 +782,42 @@ export default function FilesPage() {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Lock className="w-4 h-4" />修改权限
           </button>
-          <button onClick={() => { setMoveCopyMode('move'); setSelected(new Set([contextMenu.file.name])); setContextMenu(null); }}
+          <button onClick={() => {
+            const filePath = contextMenu.file.path;
+            setClipboard([filePath], 'move');
+            setSelected(new Set([contextMenu.file.name]));
+            setContextMenu(null);
+          }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Scissors className="w-4 h-4" />移动
           </button>
-          <button onClick={() => { setMoveCopyMode('copy'); setSelected(new Set([contextMenu.file.name])); setContextMenu(null); }}
+          <button onClick={() => {
+            const filePath = contextMenu.file.path;
+            setClipboard([filePath], 'copy');
+            setSelected(new Set([contextMenu.file.name]));
+            setContextMenu(null);
+          }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Copy className="w-4 h-4" />复制
           </button>
-          <button onClick={() => { setShareFile(contextMenu.file); setContextMenu(null); }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
-            <Share2 className="w-4 h-4" />分享
-          </button>
+
+          {/* 压缩/解压 */}
           {(contextMenu.file.name.endsWith('.zip') || contextMenu.file.name.endsWith('.tar') || contextMenu.file.name.endsWith('.tar.gz') || contextMenu.file.name.endsWith('.tgz')) && (
             <button onClick={() => { setExtractFile(contextMenu.file); setContextMenu(null); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
               <FileArchive className="w-4 h-4" />解压
             </button>
           )}
-          {!contextMenu.file.isDirectory && (
+          {!contextMenu.file.isDirectory && !(contextMenu.file.name.endsWith('.zip') || contextMenu.file.name.endsWith('.tar') || contextMenu.file.name.endsWith('.tar.gz') || contextMenu.file.name.endsWith('.tgz')) && (
             <button onClick={() => { setCompressFiles([contextMenu.file.path]); setContextMenu(null); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
-              <HardDrive className="w-4 h-4" />压缩
+              <FileArchive className="w-4 h-4" />压缩
             </button>
           )}
+
           <div className="border-t border-zinc-700 my-1" />
+
+          {/* 危险操作 */}
           <button onClick={() => { handleDelete([contextMenu.file.name]); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10">
             <Trash2 className="w-4 h-4" />删除
@@ -589,9 +835,52 @@ export default function FilesPage() {
       {extractFile && (
         <ExtractDialog filePath={extractFile.path} fileName={extractFile.name} currentPath={path} onClose={() => setExtractFile(null)} onSuccess={() => loadFiles(path)} />
       )}
-      {moveCopyMode && (
-        <MoveCopyDialog selectedPaths={selectedPaths} currentPath={path} mode={moveCopyMode} onClose={() => setMoveCopyMode(null)} onSuccess={() => { loadFiles(path); setSelected(new Set()); }} />
-      )}
+
+      {/* Action Sheet for mobile */}
+      <ActionSheet
+        open={showActionSheet}
+        onClose={() => setShowActionSheet(false)}
+        file={actionSheetFile}
+        onAction={(action) => {
+          if (!actionSheetFile) return;
+          switch (action) {
+            case 'open':
+              navigate(actionSheetFile);
+              break;
+            case 'download':
+              handleDownload(actionSheetFile);
+              break;
+            case 'share':
+              setShareFile(actionSheetFile);
+              break;
+            case 'rename':
+              setRenaming(actionSheetFile.name);
+              setRenameValue(actionSheetFile.name);
+              break;
+            case 'chmod':
+              setChmodding(actionSheetFile.name);
+              setChmodValue(actionSheetFile.permissions);
+              break;
+            case 'move':
+              setClipboard([actionSheetFile.path], 'move');
+              setSelected(new Set([actionSheetFile.name]));
+              break;
+            case 'copy':
+              setClipboard([actionSheetFile.path], 'copy');
+              setSelected(new Set([actionSheetFile.name]));
+              break;
+            case 'compress':
+              setCompressFiles([actionSheetFile.path]);
+              break;
+            case 'extract':
+              setExtractFile(actionSheetFile);
+              break;
+            case 'delete':
+              handleDelete([actionSheetFile.name]);
+              break;
+          }
+        }}
+      />
     </div>
   );
 }

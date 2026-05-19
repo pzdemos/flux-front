@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { trashApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
-import { Trash2, RotateCcw, Loader2, AlertTriangle, FileIcon } from 'lucide-react';
+import { Trash2, RotateCcw, Loader2, AlertTriangle, File as FileIcon } from 'lucide-react';
 import type { TrashItem } from '@/types';
 
 export default function TrashView() {
@@ -14,8 +14,18 @@ export default function TrashView() {
     setLoading(true);
     try {
       const res = await trashApi.list();
-      setItems(res.data || []);
-    } catch {
+      // Ensure items is always an array
+      const data = res.data;
+      if (Array.isArray(data)) {
+        setItems(data);
+      } else if (data && typeof data === 'object' && 'items' in data && Array.isArray(data.items)) {
+        setItems(data.items);
+      } else {
+        console.warn('[TrashView] Unexpected data format:', data);
+        setItems([]);
+      }
+    } catch (err) {
+      console.error('[TrashView] Load error:', err);
       addNotification({ type: 'error', message: '获取回收站失败' });
       setItems([]);
     } finally {
@@ -77,9 +87,12 @@ export default function TrashView() {
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-emerald-500" /></div>
       ) : items.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-500">
-          <AlertTriangle className="w-12 h-12 mb-2 opacity-30" />
-          <p>回收站为空</p>
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="text-center">
+            <AlertTriangle className="w-16 h-16 mx-auto mb-3 text-zinc-600" />
+            <p className="text-zinc-400 text-base">回收站为空</p>
+            <p className="text-zinc-500 text-sm mt-1">删除的文件会显示在这里</p>
+          </div>
         </div>
       ) : (
         <div className="flex-1 overflow-auto space-y-1">
