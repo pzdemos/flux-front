@@ -828,17 +828,8 @@ export default function FilesPage() {
                     <span className="hidden md:block w-32 text-right text-xs text-zinc-400 select-none">{file.modified}</span>
                     <span className="hidden md:block w-20 text-right text-xs text-zinc-500 font-mono select-none cursor-pointer hover:text-emerald-400" onClick={() => { setChmodFile(file); }}>{file.permissions}</span>
 
-                    {/* More button - desktop only */}
+                    {/* Spacer for desktop column alignment */}
                     <span className="hidden md:block w-8"></span>
-                              file
-                            });
-                          };
-                        }
-                      }}
-                      className="w-8 hidden md:flex items-center justify-center text-zinc-500 hover:text-white rounded hover:bg-zinc-800"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
                   </div>
                 ))
               )}
