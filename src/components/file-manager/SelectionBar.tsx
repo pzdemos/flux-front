@@ -3,7 +3,6 @@ import {
   Scissors,
   Copy,
   FileArchive,
-  Share2,
   Edit3,
   X,
   Download
@@ -15,7 +14,6 @@ interface SelectionBarProps {
   onMove: () => void;
   onCopy: () => void;
   onCompress: () => void;
-  onShare: () => void;
   onRename: () => void;
   onDownload: () => void;
   onCancel: () => void;
@@ -27,7 +25,6 @@ export default function SelectionBar({
   onMove,
   onCopy,
   onCompress,
-  onShare,
   onRename,
   onDownload,
   onCancel,
@@ -47,12 +44,6 @@ export default function SelectionBar({
           className="flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-500 text-white text-xs hover:bg-emerald-400 transition-colors"
         >
           <FileArchive className="w-3.5 h-3.5" />压缩
-        </button>
-        <button
-          onClick={onShare}
-          className="flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-500 text-white text-xs hover:bg-emerald-400 transition-colors"
-        >
-          <Share2 className="w-3.5 h-3.5" />分享
         </button>
         <button
           onClick={onRename}

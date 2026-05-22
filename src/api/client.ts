@@ -188,25 +188,6 @@ export const compressApi = {
     apiClient.post('/files/extract/tar', { path, outputDir }),
 };
 
-// ===== Share API =====
-export const shareApi = {
-  /** 1. 创建分享 */
-  create: (path: string, expiresIn?: number, password?: string, maxDownloads?: number) =>
-    apiClient.post('/files/share/create', { path, expiresIn: expiresIn || 0, password, maxDownloads }),
-
-  /** 2. 分享列表 */
-  list: () =>
-    apiClient.get('/files/share/list'),
-
-  /** 3. 分享信息 */
-  info: (token: string) =>
-    apiClient.get(`/files/share/info/${token}`),
-
-  /** 4. 删除分享 */
-  delete: (token: string) =>
-    apiClient.delete(`/files/share/${token}`),
-};
-
 // ===== Trash API =====
 export const trashApi = {
   /** 1. 查看回收站 */

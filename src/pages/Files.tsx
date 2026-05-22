@@ -2,11 +2,9 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { fileApi, uploadApi, apiClient } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import FileEditor from '@/components/file-manager/FileEditor';
-import ShareDialog from '@/components/file-manager/ShareDialog';
 import CompressDialog from '@/components/file-manager/CompressDialog';
 import ExtractDialog from '@/components/file-manager/ExtractDialog';
 import TrashView from '@/components/file-manager/TrashView';
-import ShareView from '@/components/file-manager/ShareView';
 import PasteBar from '@/components/file-manager/PasteBar';
 import ToolsView from '@/components/file-manager/ToolsView';
 import SelectionBar from '@/components/file-manager/SelectionBar';
@@ -15,8 +13,8 @@ import {
   Folder, File as FileIcon, ChevronRight, ChevronUp, Home,
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
-  MoreVertical, Lock, Download, Scissors, Copy, Share2,
-  FileArchive, Wrench, Plus, X
+  MoreVertical, Lock, Download, Scissors, Copy,
+  FileArchive, Wrench, Plus, X, Check, Square
 } from 'lucide-react';
 import type { FileItem, RawFileItem } from '@/types';
 
@@ -107,7 +105,6 @@ export default function FilesPage() {
   const [newName, setNewName] = useState('');
 
   // Dialogs
-  const [shareFile, setShareFile] = useState<FileItem | null>(null);
   const [compressFiles, setCompressFiles] = useState<string[] | null>(null);
   const [extractFile, setExtractFile] = useState<FileItem | null>(null);
 
@@ -191,6 +188,18 @@ export default function FilesPage() {
       return n;
     });
   };
+
+  const toggleSelectAll = () => {
+    const allNames = filtered.map(f => f.name);
+    if (selected.size === allNames.length && allNames.length > 0) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(allNames));
+    }
+  };
+
+  const isAllSelected = filtered.length > 0 && selected.size === filtered.length;
+  const isSomeSelected = selected.size > 0 && selected.size < filtered.length;
 
   // ===== Actions =====
 
@@ -375,7 +384,6 @@ export default function FilesPage() {
   const viewButtons = [
     { id: 'files' as const, label: '文件', icon: Folder },
     { id: 'trash' as const, label: '回收站', icon: Trash2 },
-    { id: 'shares' as const, label: '分享', icon: Share2 },
     { id: 'tools' as const, label: '工具', icon: Wrench },
   ];
 
@@ -416,7 +424,6 @@ export default function FilesPage() {
         {viewMode !== 'files' ? (
           <div className="flex-1 min-h-0">
             {viewMode === 'trash' && <TrashView />}
-            {viewMode === 'shares' && <ShareView />}
             {viewMode === 'tools' && <ToolsView />}
           </div>
         ) : (
@@ -511,13 +518,6 @@ export default function FilesPage() {
                 onMove={() => setClipboard(selectedPaths, 'move')}
                 onCopy={() => setClipboard(selectedPaths, 'copy')}
                 onCompress={() => setCompressFiles(selectedPaths)}
-                onShare={() => {
-                  const name = Array.from(selected)[0];
-                  if (name) {
-                    const file = files.find(f => f.name === name);
-                    if (file) setShareFile(file);
-                  }
-                }}
                 onRename={() => {
                   const name = Array.from(selected)[0];
                   if (name) {
@@ -545,8 +545,23 @@ export default function FilesPage() {
             )}
 
             {/* File List Header */}
-            <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase tracking-wider">
-              <span className="w-8"></span>
+            <div className="grid grid-cols-[auto_40px_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              <button
+                onClick={toggleSelectAll}
+                className="w-8 flex items-center justify-center hover:bg-zinc-800 rounded transition-colors"
+                title={isAllSelected ? '取消全选' : '全选'}
+              >
+                {isAllSelected ? (
+                  <Check className="w-4 h-4 text-emerald-400" />
+                ) : isSomeSelected ? (
+                  <div className="w-4 h-4 relative">
+                    <div className="absolute inset-0 bg-emerald-400 rounded-sm" style={{ clipPath: 'inset(50% 0 0 0)' }} />
+                  </div>
+                ) : (
+                  <Square className="w-4 h-4 text-zinc-600" />
+                )}
+              </button>
+              <span></span>
               <span>名称</span>
               <span className="w-20 text-right hidden md:block">大小</span>
               <span className="w-32 text-right hidden md:block">修改时间</span>
@@ -563,7 +578,7 @@ export default function FilesPage() {
               ) : (
                 filtered.map((file) => (
                   <div key={file.name}
-                    className={`grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/40
+                    className={`grid grid-cols-[auto_40px_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/40
                       ${selected.has(file.name) ? 'bg-emerald-500/10 border-l-2 border-l-emerald-500' : ''}`}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -571,8 +586,21 @@ export default function FilesPage() {
                       setContextMenu({ x: pos.x, y: pos.y, file });
                     }}
                   >
-                    {/* Icon - clickable */}
-                    <div className="w-8 flex items-center justify-center cursor-pointer" onClick={() => toggleSelect(file.name)} onDoubleClick={() => navigate(file)}>
+                    {/* Checkbox */}
+                    <button
+                      onClick={() => toggleSelect(file.name)}
+                      className="w-8 flex items-center justify-center hover:bg-zinc-800 rounded transition-colors"
+                      title={selected.has(file.name) ? '取消选择' : '选择'}
+                    >
+                      {selected.has(file.name) ? (
+                        <Check className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Square className="w-4 h-4 text-zinc-600" />
+                      )}
+                    </button>
+
+                    {/* Icon - clickable to open */}
+                    <div className="w-8 flex items-center justify-center cursor-pointer hover:bg-zinc-800/50 rounded transition-colors" onClick={() => navigate(file)}>
                       {file.isDirectory ? <Folder className="w-5 h-5 text-amber-400" /> : <FileIcon className="w-5 h-5 text-zinc-400" />}
                     </div>
 
@@ -592,7 +620,10 @@ export default function FilesPage() {
                             onBlur={() => handleChmod(file.name)} />
                         </div>
                       ) : (
-                        <span className="text-sm text-zinc-200 truncate cursor-pointer" onClick={() => toggleSelect(file.name)} onDoubleClick={() => navigate(file)}>{file.name}</span>
+                        <span
+                          className="text-sm text-zinc-200 truncate cursor-pointer hover:text-white transition-colors"
+                          onClick={() => navigate(file)}
+                        >{file.name}</span>
                       )}
                       {isMobile && <span className="text-xs text-zinc-500">{formatSize(file.size)} &middot; {file.permissions}</span>}
                     </div>
@@ -643,15 +674,6 @@ export default function FilesPage() {
                     </button>
                     <button onClick={() => setCompressFiles(selectedPaths)} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 shrink-0">
                       <FileArchive className="w-5 h-5" /><span className="text-[10px]">压缩</span>
-                    </button>
-                    <button onClick={() => {
-                      const name = Array.from(selected)[0];
-                      if (name) {
-                        const file = files.find(f => f.name === name);
-                        if (file) setShareFile(file);
-                      }
-                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
-                      <Share2 className="w-5 h-5" /><span className="text-[10px]">分享</span>
                     </button>
                     <button onClick={() => {
                       const name = Array.from(selected)[0];
@@ -766,10 +788,6 @@ export default function FilesPage() {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Download className="w-4 h-4" />下载
           </button>
-          <button onClick={() => { setShareFile(contextMenu.file); setContextMenu(null); }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
-            <Share2 className="w-4 h-4" />分享
-          </button>
 
           <div className="border-t border-zinc-700 my-1" />
 
@@ -826,9 +844,6 @@ export default function FilesPage() {
       )}
 
       {/* ===== Dialogs ===== */}
-      {shareFile && (
-        <ShareDialog filePath={shareFile.path} fileName={shareFile.name} onClose={() => setShareFile(null)} />
-      )}
       {compressFiles && (
         <CompressDialog selectedPaths={compressFiles} currentPath={path} onClose={() => setCompressFiles(null)} onSuccess={() => loadFiles(path)} />
       )}
@@ -849,9 +864,6 @@ export default function FilesPage() {
               break;
             case 'download':
               handleDownload(actionSheetFile);
-              break;
-            case 'share':
-              setShareFile(actionSheetFile);
               break;
             case 'rename':
               setRenaming(actionSheetFile.name);

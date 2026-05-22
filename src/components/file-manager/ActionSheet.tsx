@@ -3,7 +3,6 @@ import {
   Folder,
   File as FileIcon,
   Download,
-  Share2,
   Edit3,
   Lock,
   Scissors,
@@ -31,7 +30,6 @@ export default function ActionSheet({ open, onClose, file, onAction }: ActionShe
   const actions = [
     { id: 'open', label: file.isDirectory ? '打开' : '编辑', icon: file.isDirectory ? Folder : FileIcon, color: 'text-zinc-400' },
     { id: 'download', label: '下载', icon: Download, color: 'text-zinc-400' },
-    { id: 'share', label: '分享', icon: Share2, color: 'text-zinc-400' },
     { id: 'rename', label: '重命名', icon: Edit3, color: 'text-zinc-400' },
     { id: 'chmod', label: '修改权限', icon: Lock, color: 'text-zinc-400' },
     { id: 'move', label: '移动', icon: Scissors, color: 'text-amber-400' },

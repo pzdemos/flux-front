@@ -70,26 +70,6 @@ export interface TrashItem {
   size: number;
 }
 
-// ===== Share Types =====
-export interface ShareItem {
-  id: number;
-  share_token: string;
-  file_path: string;
-  filename: string;
-  expires_at: string;
-  download_count: number;
-  max_downloads: number;
-  has_password: boolean;
-  expired: boolean;
-}
-
-export interface ShareCreateResponse {
-  message: string;
-  shareToken: string;
-  shareUrl: string;
-  expiresAt: string;
-  password: boolean;
-}
 
 // ===== Disk Types =====
 export interface DiskUsageResponse {
@@ -144,7 +124,7 @@ export interface Notification {
 
 export type DeviceType = 'desktop' | 'tablet' | 'mobile';
 
-export type ViewMode = 'files' | 'trash' | 'shares' | 'tools';
+export type ViewMode = 'files' | 'trash' | 'tools';
 
 // ===== Terminal Types =====
 export interface TerminalTab {
