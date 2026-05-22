@@ -6,10 +6,12 @@ import {
   ChevronRight,
   LogOut,
   Settings,
+  Terminal,
 } from 'lucide-react';
 
 const modules = [
   { id: 'files' as const, label: '文件管理', icon: FolderOpen },
+  { id: 'terminal' as const, label: '终端管理', icon: Terminal },
 ];
 
 export default function Sidebar() {

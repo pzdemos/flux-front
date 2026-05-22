@@ -31,6 +31,15 @@ export function useWebSocket({
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionallyClosed = useRef(false);
 
+  const onMessageRef = useRef(onMessage);
+  const onOpenRef = useRef(onOpen);
+  const onCloseRef = useRef(onClose);
+  const onErrorRef = useRef(onError);
+  onMessageRef.current = onMessage;
+  onOpenRef.current = onOpen;
+  onCloseRef.current = onClose;
+  onErrorRef.current = onError;
+
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
@@ -44,17 +53,17 @@ export function useWebSocket({
       ws.onopen = () => {
         reconnectCount.current = 0;
         setState('open');
-        onOpen?.();
+        onOpenRef.current?.();
       };
 
       ws.onmessage = (e) => {
-        onMessage?.(e.data);
+        onMessageRef.current?.(e.data);
       };
 
       ws.onclose = () => {
         setState('closed');
         wsRef.current = null;
-        onClose?.();
+        onCloseRef.current?.();
 
         if (reconnect && !intentionallyClosed.current && reconnectCount.current < maxReconnects) {
           reconnectCount.current++;
@@ -67,12 +76,12 @@ export function useWebSocket({
 
       ws.onerror = (e) => {
         setState('error');
-        onError?.(e);
+        onErrorRef.current?.(e);
       };
     } catch {
       setState('error');
     }
-  }, [url, protocols, onMessage, onOpen, onClose, onError, reconnect, reconnectInterval, maxReconnects]);
+  }, [url, protocols, reconnect, reconnectInterval, maxReconnects]);
 
   const disconnect = useCallback(() => {
     intentionallyClosed.current = true;
