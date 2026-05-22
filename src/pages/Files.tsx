@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { fileApi, uploadApi, apiClient } from '@/api/client';
 import { useAppStore } from '@/stores/app';
+import type { AxiosError } from 'axios';
 import FileEditor from '@/components/file-manager/FileEditor';
 import CompressDialog from '@/components/file-manager/CompressDialog';
 import ExtractDialog from '@/components/file-manager/ExtractDialog';
@@ -50,7 +51,12 @@ export default function FilesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'name' | 'size' | 'date'>('name');
   const [editingFile, setEditingFile] = useState<FileItem | null>(null);
-  const [apiError, setApiError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Editable address bar
+  const [editingPath, setEditingPath] = useState(false);
+  const [pathInput, setPathInput] = useState('');
+  const pathInputRef = useRef<HTMLInputElement>(null);
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
@@ -127,7 +133,7 @@ export default function FilesPage() {
 
   const loadFiles = useCallback(async (p: string) => {
     setLoading(true);
-    setApiError(false);
+    setLoadError(null);
     try {
       const res = await fileApi.list(p);
       const items = normalizeItems(res.data.items, res.data.path || p);
@@ -136,7 +142,14 @@ export default function FilesPage() {
       setSelected(new Set());
     } catch (err: unknown) {
       console.error('[Files] loadFiles error:', err);
-      setApiError(true);
+      const axiosErr = err as AxiosError<{ error?: string; message?: string }>;
+      if (axiosErr.response?.status === 404) {
+        setLoadError('路径不存在');
+      } else if (axiosErr.message === 'Network Error') {
+        setLoadError('API 连接失败，请检查网络');
+      } else {
+        setLoadError(axiosErr.response?.data?.error || axiosErr.response?.data?.message || '请求失败');
+      }
       setFiles([]);
       setPath(p);
     } finally {
@@ -470,16 +483,45 @@ export default function FilesPage() {
               <button onClick={goUp} disabled={path === '/'} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
               <button onClick={() => loadFiles(path)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></button>
 
-              {/* Breadcrumb */}
-              <div className="flex-1 min-w-0 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-800/50 border border-zinc-700/50 overflow-x-auto">
-                {path.split('/').filter(Boolean).map((part, i, arr) => (
-                  <span key={i} className="flex items-center shrink-0">
-                    <ChevronRight className="w-3 h-3 text-zinc-600" />
-                    <button onClick={() => loadFiles(`/${arr.slice(0, i + 1).join('/')}`)} className="text-xs text-zinc-400 hover:text-white px-1">{part}</button>
-                  </span>
-                ))}
-                {path === '/' && <span className="text-xs text-zinc-500 px-1">/</span>}
-              </div>
+              {/* Breadcrumb / Editable path */}
+              {editingPath ? (
+                <div className="flex-1 min-w-0">
+                  <input
+                    ref={pathInputRef}
+                    type="text"
+                    value={pathInput}
+                    onChange={(e) => setPathInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setEditingPath(false);
+                        loadFiles(pathInput || '/');
+                      } else if (e.key === 'Escape') {
+                        setEditingPath(false);
+                      }
+                    }}
+                    onBlur={() => setEditingPath(false)}
+                    className="w-full px-2 py-1 rounded-md bg-zinc-700/50 border border-emerald-500/50 text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <div
+                  className="flex-1 min-w-0 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-800/50 border border-zinc-700/50 overflow-x-auto cursor-text"
+                  onClick={() => {
+                    setPathInput(path);
+                    setEditingPath(true);
+                    setTimeout(() => pathInputRef.current?.select(), 0);
+                  }}
+                >
+                  {path.split('/').filter(Boolean).map((part, i, arr) => (
+                    <span key={i} className="flex items-center shrink-0">
+                      <ChevronRight className="w-3 h-3 text-zinc-600" />
+                      <button onClick={(e) => { e.stopPropagation(); loadFiles(`/${arr.slice(0, i + 1).join('/')}`); }} className="text-xs text-zinc-400 hover:text-white px-1">{part}</button>
+                    </span>
+                  ))}
+                  {path === '/' && <span className="text-xs text-zinc-500 px-1">/</span>}
+                </div>
+              )}
 
               {/* Search */}
               <div className="relative">
@@ -576,10 +618,10 @@ export default function FilesPage() {
             )}
 
             {/* API Error Banner */}
-            {apiError && (
+            {loadError && (
               <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
                 <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="text-xs text-amber-400">API 连接失败，请检查网络</span>
+                <span className="text-xs text-amber-400">{loadError}</span>
               </div>
             )}
 
