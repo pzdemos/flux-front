@@ -13,7 +13,7 @@ const modules = [
 ];
 
 export default function Sidebar() {
-  const { activeModule, sidebarOpen, toggleSidebar, isMobile, setActiveModule } = useAppStore();
+  const { activeModule, sidebarOpen, toggleSidebar, isMobile, setActiveModule, setViewMode } = useAppStore();
   const { user, logout } = useAuthStore();
 
   return (
@@ -60,7 +60,10 @@ export default function Sidebar() {
                 return (
                   <button
                     key={mod.id}
-                    onClick={() => setActiveModule(mod.id)}
+                    onClick={() => {
+                      setActiveModule(mod.id);
+                      setViewMode('files');
+                    }}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all cursor-default
                       ${isActive
                         ? 'bg-emerald-600/15 text-emerald-400 border border-emerald-600/20'
@@ -89,7 +92,10 @@ export default function Sidebar() {
                 </div>
               </div>
               <button
-                onClick={() => setActiveModule('tools')}
+                onClick={() => {
+                  setActiveModule('tools');
+                  setViewMode('tools');
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors"
               >
                 <Settings className="w-4 h-4" />
