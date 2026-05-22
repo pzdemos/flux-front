@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { fileApi, uploadApi, apiClient } from '@/api/client';
+import { fileApi, uploadApi, apiClient, systemApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import type { AxiosError } from 'axios';
 import FileEditor from '@/components/file-manager/FileEditor';
@@ -46,6 +46,7 @@ function formatDate(isoDate: string): string {
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [path, setPath] = useState('/');
+  const [currentRoot, setCurrentRoot] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -131,6 +132,27 @@ export default function FilesPage() {
   const setClipboard = useAppStore((s) => s.setClipboard);
   const clearClipboard = useAppStore((s) => s.clearClipboard);
 
+  const toAbs = useCallback((relPath: string) => {
+    if (!currentRoot) return relPath;
+    if (relPath === '/') return currentRoot;
+    return `${currentRoot.replace(/\/$/, '')}${relPath}`;
+  }, [currentRoot]);
+
+  const toRel = useCallback((absPath: string) => {
+    if (!currentRoot) return absPath;
+    if (currentRoot === '/') return absPath;
+    if (absPath === currentRoot) return '/';
+    if (absPath.startsWith(currentRoot + '/'))
+      return absPath.slice(currentRoot.length);
+    return null;
+  }, [currentRoot]);
+
+  useEffect(() => {
+    systemApi.getRoot().then((res) => {
+      setCurrentRoot(res.data.root || res.data || '/var/www/wwwroot');
+    }).catch(() => setCurrentRoot('/var/www/wwwroot'));
+  }, []);
+
   const loadFiles = useCallback(async (p: string) => {
     setLoading(true);
     setLoadError(null);
@@ -139,6 +161,7 @@ export default function FilesPage() {
       const items = normalizeItems(res.data.items, res.data.path || p);
       setFiles(items);
       setPath(res.data.path || p);
+      if (res.data.root) setCurrentRoot(res.data.root);
       setSelected(new Set());
     } catch (err: unknown) {
       console.error('[Files] loadFiles error:', err);
@@ -491,10 +514,24 @@ export default function FilesPage() {
                     type="text"
                     value={pathInput}
                     onChange={(e) => setPathInput(e.target.value)}
-                    onKeyDown={(e) => {
+                    onKeyDown={async (e) => {
                       if (e.key === 'Enter') {
                         setEditingPath(false);
-                        loadFiles(pathInput || '/');
+                        const input = pathInput || '/';
+                        const rel = toRel(input);
+                        if (rel !== null) {
+                          loadFiles(rel);
+                        } else if (input.startsWith('/') && currentRoot && currentRoot !== '/') {
+                          try {
+                            await systemApi.setRoot('/');
+                            setCurrentRoot('/');
+                            loadFiles(input);
+                          } catch {
+                            addNotification({ type: 'error', message: `路径超出文件管理器范围，且无法自动切换根路径` });
+                          }
+                        } else {
+                          loadFiles(input);
+                        }
                       } else if (e.key === 'Escape') {
                         setEditingPath(false);
                       }
@@ -508,18 +545,18 @@ export default function FilesPage() {
                 <div
                   className="flex-1 min-w-0 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-800/50 border border-zinc-700/50 overflow-x-auto cursor-text"
                   onClick={() => {
-                    setPathInput(path);
+                    setPathInput(toAbs(path));
                     setEditingPath(true);
                     setTimeout(() => pathInputRef.current?.select(), 0);
                   }}
                 >
-                  {path.split('/').filter(Boolean).map((part, i, arr) => (
+                  {toAbs(path).split('/').filter(Boolean).map((part, i, arr) => (
                     <span key={i} className="flex items-center shrink-0">
                       <ChevronRight className="w-3 h-3 text-zinc-600" />
-                      <button onClick={(e) => { e.stopPropagation(); loadFiles(`/${arr.slice(0, i + 1).join('/')}`); }} className="text-xs text-zinc-400 hover:text-white px-1">{part}</button>
+                      <button onClick={(e) => { e.stopPropagation(); loadFiles(toRel(`/${arr.slice(0, i + 1).join('/')}`) || `/${arr.slice(0, i + 1).join('/')}`); }} className="text-xs text-zinc-400 hover:text-white px-1">{part}</button>
                     </span>
                   ))}
-                  {path === '/' && <span className="text-xs text-zinc-500 px-1">/</span>}
+                  {toAbs(path) === '/' && <span className="text-xs text-zinc-500 px-1">/</span>}
                 </div>
               )}
 
