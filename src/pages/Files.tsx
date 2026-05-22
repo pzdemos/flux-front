@@ -512,76 +512,24 @@ export default function FilesPage() {
         ) : (
           <>
             {/* Toolbar */}
-            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/50 shrink-0 flex-wrap">
-              <button onClick={goHome} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"><Home className="w-4 h-4" /></button>
-              <button onClick={goUp} disabled={path === '/'} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
-              <button onClick={() => loadFiles(path)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></button>
+            <div className="border-b border-zinc-800 bg-zinc-900/50 shrink-0">
+              {/* Row 1: nav buttons + search + actions */}
+              <div className="flex items-center gap-2 px-4 pt-2.5 pb-1.5 md:pb-2.5 md:pt-2.5">
+                <button onClick={goHome} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"><Home className="w-4 h-4" /></button>
+                <button onClick={goUp} disabled={path === '/'} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
+                <button onClick={() => loadFiles(path)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></button>
 
-              {/* Breadcrumb / Editable path */}
-              {editingPath ? (
-                <div className="flex-1 min-w-0">
-                  <input
-                    ref={pathInputRef}
-                    type="text"
-                    value={pathInput}
-                    onChange={(e) => setPathInput(e.target.value)}
-                    onKeyDown={async (e) => {
-                      if (e.key === 'Enter') {
-                        setEditingPath(false);
-                        const input = pathInput || '/';
-                        const rel = toRel(input);
-                        if (rel !== null) {
-                          loadFiles(rel);
-                        } else if (input.startsWith('/') && currentRoot && currentRoot !== '/') {
-                          try {
-                            await systemApi.setRoot('/');
-                            setCurrentRoot('/');
-                            loadFiles(input);
-                          } catch {
-                            addNotification({ type: 'error', message: `路径超出文件管理器范围，且无法自动切换根路径` });
-                          }
-                        } else {
-                          loadFiles(input);
-                        }
-                      } else if (e.key === 'Escape') {
-                        setEditingPath(false);
-                      }
-                    }}
-                    onBlur={() => setEditingPath(false)}
-                    className="w-full px-2 py-1 rounded-md bg-zinc-700/50 border border-emerald-500/50 text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
-                    autoFocus
-                  />
+                {/* Search */}
+                <div className="relative flex-1 md:flex-initial min-w-0 max-w-full md:max-w-52">
+                  <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                  <input type="text" placeholder="搜索..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40" />
                 </div>
-              ) : (
-                <div
-                  className="flex-1 min-w-0 flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-800/50 border border-zinc-700/50 overflow-x-auto cursor-text"
-                  onClick={() => {
-                    setPathInput(toAbs(path));
-                    setEditingPath(true);
-                    setTimeout(() => pathInputRef.current?.select(), 0);
-                  }}
-                >
-                  {toAbs(path).split('/').filter(Boolean).map((part, i, arr) => (
-                    <span key={i} className="flex items-center shrink-0">
-                      <ChevronRight className="w-3 h-3 text-zinc-600" />
-                      <button onClick={(e) => { e.stopPropagation(); loadFiles(toRel(`/${arr.slice(0, i + 1).join('/')}`) || `/${arr.slice(0, i + 1).join('/')}`); }} className="text-xs text-zinc-400 hover:text-white px-1">{part}</button>
-                    </span>
-                  ))}
-                  {toAbs(path) === '/' && <span className="text-xs text-zinc-500 px-1">/</span>}
-                </div>
-              )}
 
-              {/* Search */}
-              <div className="relative flex-1 md:flex-initial min-w-0 max-w-full md:max-w-52">
-                <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                <input type="text" placeholder="搜索..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40" />
-              </div>
+                <button onClick={() => setSortBy(sortBy === 'name' ? 'date' : 'name')} className="hidden md:block p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white" title="切换排序"><ArrowUpDown className="w-4 h-4" /></button>
 
-              <button onClick={() => setSortBy(sortBy === 'name' ? 'date' : 'name')} className="hidden md:block p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white" title="切换排序"><ArrowUpDown className="w-4 h-4" /></button>
-
-              {/* New dropdown - PC */}
-              {!isMobile && (
+                {/* New dropdown - PC */}
+                {!isMobile && (
                 <div className="relative" ref={newMenuRef}>
                   <button
                     onClick={() => setShowNewMenu(!showNewMenu)}
@@ -651,6 +599,70 @@ export default function FilesPage() {
                       </div>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Row 2: Breadcrumb / Editable path (full width) */}
+            <div className="px-4 pb-2.5 md:pb-0 md:pt-0">
+              {editingPath ? (
+                <input
+                  ref={pathInputRef}
+                  type="text"
+                  value={pathInput}
+                  onChange={(e) => setPathInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter') {
+                      setEditingPath(false);
+                      const input = pathInput || '/';
+                      const rel = toRel(input);
+                      if (rel !== null) {
+                        loadFiles(rel);
+                      } else if (input.startsWith('/') && currentRoot && currentRoot !== '/') {
+                        try {
+                          await systemApi.setRoot('/');
+                          setCurrentRoot('/');
+                          loadFiles(input);
+                        } catch {
+                          addNotification({ type: 'error', message: `路径超出文件管理器范围，且无法自动切换根路径` });
+                        }
+                      } else {
+                        loadFiles(input);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setEditingPath(false);
+                    }
+                  }}
+                  onBlur={() => setEditingPath(false)}
+                  className="w-full px-3 py-2 rounded-md bg-zinc-800 border border-emerald-500/50 text-sm text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                  autoFocus
+                />
+              ) : (
+                <div
+                  className="flex items-center gap-1 px-3 py-2 rounded-md bg-zinc-800/50 border border-zinc-700/50 overflow-x-auto cursor-text"
+                  onClick={() => {
+                    setPathInput(toAbs(path));
+                    setEditingPath(true);
+                    setTimeout(() => pathInputRef.current?.select(), 0);
+                  }}
+                >
+                  {toAbs(path).split('/').filter(Boolean).map((part, i, arr) => (
+                    <span key={i} className="flex items-center shrink-0">
+                      <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const abs = `/${arr.slice(0, i + 1).join('/')}`;
+                          const rel = toRel(abs);
+                          loadFiles(rel ?? abs);
+                        }}
+                        className="text-sm text-zinc-400 hover:text-white whitespace-nowrap px-1.5 py-0.5 rounded hover:bg-zinc-700/50"
+                      >
+                        {part}
+                      </button>
+                    </span>
+                  ))}
+                  {toAbs(path) === '/' && <span className="text-sm text-zinc-500 px-1">/</span>}
                 </div>
               )}
             </div>
