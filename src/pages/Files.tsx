@@ -564,6 +564,7 @@ export default function FilesPage() {
                       value={pathInput}
                       onChange={(e) => setPathInput(e.target.value)}
                       onKeyDown={async (e) => {
+                        if ((e as any).nativeEvent?.isComposing) return;
                         if (e.key === 'Enter') {
                           setEditingPath(false);
                           const input = pathInput || '/';
@@ -585,7 +586,6 @@ export default function FilesPage() {
                           setEditingPath(false);
                         }
                       }}
-                      onBlur={() => setEditingPath(false)}
                       className="w-full px-2 py-1 rounded-md bg-zinc-700/50 border border-emerald-500/50 text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
                       autoFocus
                     />
@@ -725,6 +725,7 @@ export default function FilesPage() {
                   value={pathInput}
                   onChange={(e) => setPathInput(e.target.value)}
                   onKeyDown={async (e) => {
+                    if ((e as any).nativeEvent?.isComposing) return;
                     if (e.key === 'Enter') {
                       setEditingPath(false);
                       const input = pathInput || '/';
