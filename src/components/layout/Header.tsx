@@ -2,7 +2,7 @@ import { useAppStore } from '@/stores/app';
 import { Bell, Menu } from 'lucide-react';
 
 export default function Header() {
-  const { notifications, isMobile, sidebarOpen, toggleSidebar, activeModule } = useAppStore();
+  const { notifications, isMobile, toggleSidebar, activeModule } = useAppStore();
   const unreadCount = notifications.filter((n) => n.type === 'error' || n.type === 'warning').length;
   const moduleTitle = activeModule === 'terminal' ? '终端管理' : '文件管理';
 

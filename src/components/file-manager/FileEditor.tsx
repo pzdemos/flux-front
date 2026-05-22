@@ -37,7 +37,8 @@ export default function FileEditor({ filePath, fileName, onClose, onSaved }: Fil
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const editorRef = useRef<Parameters<Parameters<typeof Editor>[0]['onMount']>[0] | null>(null);
+  type EditorOnMountParam = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
+  const editorRef = useRef<EditorOnMountParam | null>(null);
   const addNotification = useAppStore((s) => s.addNotification);
 
   const isEditable = isEditableFile(fileName);
@@ -90,7 +91,7 @@ export default function FileEditor({ filePath, fileName, onClose, onSaved }: Fil
     return () => window.removeEventListener('keydown', handler);
   }, [dirty, saving, content]);
 
-  const handleEditorMount = (editor: Parameters<Parameters<typeof Editor>[0]['onMount']>[0]) => {
+  const handleEditorMount = (editor: EditorOnMountParam) => {
     editorRef.current = editor;
     editor.focus();
   };

@@ -519,6 +519,84 @@ export default function FilesPage() {
                 <button onClick={goUp} disabled={path === '/'} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
                 <button onClick={() => loadFiles(path)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></button>
 
+                {/* Path - PC inline */}
+                {!isMobile && (
+                <div className="flex-1 min-w-0 hidden md:flex items-center gap-1 px-2">
+                  {editingPath ? (
+                    <input
+                      ref={pathInputRef}
+                      type="text"
+                      value={pathInput}
+                      onChange={(e) => setPathInput(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter') {
+                          setEditingPath(false);
+                          const input = pathInput || '/';
+                          const rel = toRel(input);
+                          if (rel !== null) {
+                            loadFiles(rel);
+                          } else if (input.startsWith('/') && currentRoot && currentRoot !== '/') {
+                            try {
+                              await systemApi.setRoot('/');
+                              setCurrentRoot('/');
+                              loadFiles(input);
+                            } catch {
+                              addNotification({ type: 'error', message: `路径超出文件管理器范围，且无法自动切换根路径` });
+                            }
+                          } else {
+                            loadFiles(input);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setEditingPath(false);
+                        }
+                      }}
+                      onBlur={() => setEditingPath(false)}
+                      className="w-full px-2 py-1 rounded-md bg-zinc-700/50 border border-emerald-500/50 text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                      autoFocus
+                    />
+                  ) : (
+                    <div
+                      className="flex items-center gap-1 overflow-x-auto cursor-text flex-1"
+                      onClick={() => {
+                        setPathInput(toAbs(path));
+                        setEditingPath(true);
+                        setTimeout(() => pathInputRef.current?.select(), 0);
+                      }}
+                    >
+                      {toAbs(path).split('/').filter(Boolean).map((part, i, arr) => (
+                        <span key={i} className="flex items-center shrink-0">
+                          <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const abs = `/${arr.slice(0, i + 1).join('/')}`;
+                              const rel = toRel(abs);
+                              if (rel !== null) {
+                                loadFiles(rel);
+                              } else if (abs.startsWith('/') && currentRoot && currentRoot !== '/') {
+                                try {
+                                  await systemApi.setRoot('/');
+                                  setCurrentRoot('/');
+                                  loadFiles(abs);
+                                } catch {
+                                  addNotification({ type: 'error', message: '路径超出文件管理器范围，且无法自动切换根路径' });
+                                }
+                              } else {
+                                loadFiles(abs);
+                              }
+                            }}
+                            className="text-xs text-zinc-400 hover:text-white whitespace-nowrap px-1"
+                          >
+                            {part}
+                          </button>
+                        </span>
+                      ))}
+                      {toAbs(path) === '/' && <span className="text-xs text-zinc-500 px-1">/</span>}
+                    </div>
+                  )}
+                </div>
+                )}
+
                 {/* Search */}
                 <div className="relative flex-1 md:flex-initial min-w-0 max-w-full md:max-w-52">
                   <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -603,8 +681,8 @@ export default function FilesPage() {
               )}
             </div>
 
-            {/* Row 2: Breadcrumb / Editable path (full width) */}
-            <div className="px-4 pb-2.5 md:pb-0 md:pt-0">
+            {/* Row 2: Breadcrumb / Editable path - mobile only */}
+            <div className="px-4 pb-2.5 md:pb-0 md:pt-0 md:hidden">
               {editingPath ? (
                 <input
                   ref={pathInputRef}
@@ -650,11 +728,23 @@ export default function FilesPage() {
                     <span key={i} className="flex items-center shrink-0">
                       <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
                           const abs = `/${arr.slice(0, i + 1).join('/')}`;
                           const rel = toRel(abs);
-                          loadFiles(rel ?? abs);
+                          if (rel !== null) {
+                            loadFiles(rel);
+                          } else if (abs.startsWith('/') && currentRoot && currentRoot !== '/') {
+                            try {
+                              await systemApi.setRoot('/');
+                              setCurrentRoot('/');
+                              loadFiles(abs);
+                            } catch {
+                              addNotification({ type: 'error', message: '路径超出文件管理器范围，且无法自动切换根路径' });
+                            }
+                          } else {
+                            loadFiles(abs);
+                          }
                         }}
                         className="text-sm text-zinc-400 hover:text-white whitespace-nowrap px-1.5 py-0.5 rounded hover:bg-zinc-700/50"
                       >
@@ -665,6 +755,7 @@ export default function FilesPage() {
                   {toAbs(path) === '/' && <span className="text-sm text-zinc-500 px-1">/</span>}
                 </div>
               )}
+            </div>
             </div>
 
             {/* Drag overlay */}
