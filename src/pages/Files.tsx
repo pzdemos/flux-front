@@ -149,7 +149,12 @@ export default function FilesPage() {
 
   useEffect(() => {
     systemApi.getRoot().then((res) => {
-      setCurrentRoot(res.data.root || res.data || '/var/www/wwwroot');
+      const root = res.data.root || res.data || '/var/www/wwwroot';
+      if (root !== '/var/www/wwwroot') {
+        systemApi.setRoot('/var/www/wwwroot').then(() => setCurrentRoot('/var/www/wwwroot')).catch(() => setCurrentRoot(root));
+      } else {
+        setCurrentRoot(root);
+      }
     }).catch(() => setCurrentRoot('/var/www/wwwroot'));
   }, []);
 
@@ -315,8 +320,14 @@ export default function FilesPage() {
     let success = 0;
     for (const name of names) {
       const filePath = path === '/' ? `/${name}` : `${path}/${name}`;
+      const file = files.find((f) => f.name === name);
+      const isDir = file?.isDirectory ?? false;
       try {
-        await fileApi.delete(filePath);
+        if (isDir) {
+          await fileApi.rmdir(filePath);
+        } else {
+          await fileApi.delete(filePath);
+        }
         success++;
       } catch {
         addNotification({ type: 'error', message: `删除 ${name} 失败` });
