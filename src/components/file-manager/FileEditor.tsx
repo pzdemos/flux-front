@@ -1,7 +1,28 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { fileApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import { X, Save, Loader2, FileText, Lock } from 'lucide-react';
+import Editor, { loader } from '@monaco-editor/react';
+
+loader.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+
+const extToLanguage: Record<string, string> = {
+  js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
+  html: 'html', htm: 'html', css: 'css', scss: 'scss', less: 'less',
+  json: 'json', xml: 'xml', svg: 'xml',
+  py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
+  java: 'java', kt: 'kotlin', swift: 'swift', dart: 'dart',
+  php: 'php', lua: 'lua', sql: 'sql', sh: 'shell', bash: 'shell', zsh: 'shell',
+  md: 'markdown', yaml: 'yaml', yml: 'yaml',
+  c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp',
+  pl: 'perl', asm: 'assembly', vue: 'html', svelte: 'html', astro: 'html',
+  conf: 'ini', ini: 'ini', dockerfile: 'dockerfile',
+};
+
+function detectLanguage(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  return extToLanguage[ext] || (name.toUpperCase() === 'DOCKERFILE' ? 'dockerfile' : 'plaintext');
+}
 
 interface FileEditorProps {
   filePath: string;
@@ -16,6 +37,7 @@ export default function FileEditor({ filePath, fileName, onClose, onSaved }: Fil
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const editorRef = useRef<Parameters<Parameters<typeof Editor>[0]['onMount']>[0] | null>(null);
   const addNotification = useAppStore((s) => s.addNotification);
 
   const isEditable = isEditableFile(fileName);
@@ -68,6 +90,11 @@ export default function FileEditor({ filePath, fileName, onClose, onSaved }: Fil
     return () => window.removeEventListener('keydown', handler);
   }, [dirty, saving, content]);
 
+  const handleEditorMount = (editor: Parameters<Parameters<typeof Editor>[0]['onMount']>[0]) => {
+    editorRef.current = editor;
+    editor.focus();
+  };
+
   return (
     <div className="flex flex-col h-full bg-zinc-900">
       {/* Toolbar */}
@@ -97,9 +124,25 @@ export default function FileEditor({ filePath, fileName, onClose, onSaved }: Fil
           <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
         </div>
       ) : isEditable ? (
-        <textarea value={content} onChange={(e) => { setContent(e.target.value); setDirty(true); }}
-          className="flex-1 bg-zinc-950 text-zinc-300 font-mono text-sm p-4 resize-none outline-none focus:ring-1 focus:ring-emerald-500/30 leading-relaxed"
-          spellCheck={false} autoFocus />
+        <Editor
+          language={detectLanguage(fileName)}
+          value={content}
+          onChange={(val) => { setContent(val || ''); setDirty(true); }}
+          theme="vs-dark"
+          onMount={handleEditorMount}
+          options={{
+            fontSize: 13,
+            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            lineNumbers: 'on',
+            renderLineHighlight: 'line',
+            tabSize: 2,
+            wordWrap: 'on',
+            automaticLayout: true,
+            padding: { top: 12 },
+          }}
+        />
       ) : (
         <div className="flex-1 bg-zinc-950 text-zinc-300 font-mono text-sm p-4 overflow-auto whitespace-pre-wrap">
           <div className="flex items-center gap-2 mb-4 text-zinc-500">
