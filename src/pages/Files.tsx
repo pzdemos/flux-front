@@ -14,7 +14,7 @@ import {
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
-  FileArchive, Wrench, Plus, X, Check, Square, ClipboardCheck
+  FileArchive, Wrench, Plus, X, Check, Square, ClipboardCheck, Server, BookOpen
 } from 'lucide-react';
 import type { FileItem, RawFileItem } from '@/types';
 
@@ -148,14 +148,18 @@ export default function FilesPage() {
   }, [currentRoot]);
 
   useEffect(() => {
-    systemApi.getRoot().then((res) => {
-      const root = res.data.root || res.data || '/var/www/wwwroot';
-      if (root !== '/var/www/wwwroot') {
-        systemApi.setRoot('/var/www/wwwroot').then(() => setCurrentRoot('/var/www/wwwroot')).catch(() => setCurrentRoot(root));
-      } else {
-        setCurrentRoot(root);
-      }
-    }).catch(() => setCurrentRoot('/var/www/wwwroot'));
+    if (viewMode === 'node' || viewMode === 'skill') {
+      systemApi.setRoot('/').then(() => setCurrentRoot('/')).catch(() => {});
+    } else {
+      systemApi.getRoot().then((res) => {
+        const root = res.data.root || res.data || '/var/www/wwwroot';
+        if (root !== '/var/www/wwwroot') {
+          systemApi.setRoot('/var/www/wwwroot').then(() => setCurrentRoot('/var/www/wwwroot')).catch(() => setCurrentRoot(root));
+        } else {
+          setCurrentRoot(root);
+        }
+      }).catch(() => setCurrentRoot('/var/www/wwwroot'));
+    }
   }, []);
 
   const loadFiles = useCallback(async (p: string) => {
@@ -186,6 +190,35 @@ export default function FilesPage() {
   }, []);
 
   useEffect(() => { loadFiles('/'); }, [loadFiles]);
+
+  // Switch root and path when entering/leaving node/skill views
+  const prevViewMode = useRef(viewMode);
+  useEffect(() => {
+    const prev = prevViewMode.current;
+    const curr = viewMode;
+    if (curr === prev) return;
+
+    const needsRootSlash = curr === 'node' || curr === 'skill';
+    const neededRootSlash = prev === 'node' || prev === 'skill';
+
+    if (needsRootSlash && !neededRootSlash) {
+      systemApi.setRoot('/').then(() => {
+        setCurrentRoot('/');
+        if (curr === 'node') { setPath('/var/server'); loadFiles('/var/server'); }
+        else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
+      }).catch(() => {});
+    } else if (!needsRootSlash && neededRootSlash) {
+      systemApi.setRoot('/var/www/wwwroot').then(() => {
+        setCurrentRoot('/var/www/wwwroot');
+        setPath('/');
+        loadFiles('/');
+      }).catch(() => {});
+    } else if (needsRootSlash && neededRootSlash) {
+      if (curr === 'node') { setPath('/var/server'); loadFiles('/var/server'); }
+      else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
+    }
+    prevViewMode.current = viewMode;
+  }, [viewMode]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -466,6 +499,8 @@ export default function FilesPage() {
   // ===== View mode switcher (integrated into header) =====
   const viewButtons = [
     { id: 'files' as const, label: '文件', icon: Folder },
+    { id: 'node' as const, label: 'node项目管理', icon: Server },
+    { id: 'skill' as const, label: 'skill管理', icon: BookOpen },
     { id: 'trash' as const, label: '回收站', icon: Trash2 },
     { id: 'tools' as const, label: '工具', icon: Wrench },
   ];
@@ -504,7 +539,7 @@ export default function FilesPage() {
         </div>
 
         {/* Render different views */}
-        {viewMode !== 'files' ? (
+        {viewMode !== 'files' && viewMode !== 'node' && viewMode !== 'skill' ? (
           <div className="flex-1 min-h-0">
             {viewMode === 'trash' && <TrashView />}
             {viewMode === 'tools' && <ToolsView />}

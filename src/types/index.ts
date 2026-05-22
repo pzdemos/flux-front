@@ -124,7 +124,7 @@ export interface Notification {
 
 export type DeviceType = 'desktop' | 'tablet' | 'mobile';
 
-export type ViewMode = 'files' | 'trash' | 'tools';
+export type ViewMode = 'files' | 'trash' | 'tools' | 'node' | 'skill';
 
 // ===== Terminal Types =====
 export interface TerminalTab {
