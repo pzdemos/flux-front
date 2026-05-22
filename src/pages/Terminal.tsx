@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 
-const WS_BASE = 'wss://www.haoaiganfan.top/flux/ws/tmux';
+const WS_BASE = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/flux/ws/tmux`;
 const getToken = () => localStorage.getItem('flux_token') || '';
 const API_POLL_MS = 3000;
 

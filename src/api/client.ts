@@ -1,6 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = 'https://www.haoaiganfan.top/flux/api';
+const API_BASE_URL = '/flux/api';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
