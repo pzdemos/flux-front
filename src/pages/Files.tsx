@@ -9,7 +9,7 @@ import ToolsView from '@/components/file-manager/ToolsView';
 import SelectionBar from '@/components/file-manager/SelectionBar';
 import ActionSheet from '@/components/file-manager/ActionSheet';
 import {
-  Folder, File as FileIcon, ChevronRight, ChevronUp, Home,
+  Folder, File as FileIcon, ChevronRight, ChevronUp, ChevronDown, Home,
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
@@ -101,7 +101,9 @@ export default function FilesPage() {
   // New file/folder
   const [showNewFileDialog, setShowNewFileDialog] = useState(false);
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
+  const [showNewMenu, setShowNewMenu] = useState(false);
   const [newName, setNewName] = useState('');
+  const newMenuRef = useRef<HTMLDivElement>(null);
 
   // Dialogs
   const [compressFiles, setCompressFiles] = useState<string[] | null>(null);
@@ -152,6 +154,19 @@ export default function FilesPage() {
     window.addEventListener('click', handler);
     return () => window.removeEventListener('click', handler);
   }, []);
+
+  // Close new menu when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) {
+        setShowNewMenu(false);
+      }
+    };
+    if (showNewMenu) {
+      window.addEventListener('click', handler);
+      return () => window.removeEventListener('click', handler);
+    }
+  }, [showNewMenu]);
 
   const navigate = useCallback((file: FileItem) => {
     if (file.isDirectory) {
@@ -453,19 +468,79 @@ export default function FilesPage() {
 
               <button onClick={() => setSortBy(sortBy === 'name' ? 'date' : 'name')} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white" title="切换排序"><ArrowUpDown className="w-4 h-4" /></button>
 
-              {/* New dropdown */}
-              <div className="relative group">
-                <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium">
-                  <FilePlus className="w-4 h-4" />新建
-                </button>
-                <div className="absolute right-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-30 w-44 py-1 hidden group-hover:block">
-                  <button onClick={() => { setShowNewFolderDialog(true); setNewName(''); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white"><FolderPlus className="w-4 h-4" />新建文件夹</button>
-                  <button onClick={() => { setShowNewFileDialog(true); setNewName(''); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white"><FilePlus className="w-4 h-4" />新建文件</button>
-                  <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
-                    <Upload className="w-4 h-4" />上传文件
+              {/* New dropdown - PC */}
+              {!isMobile && (
+                <div className="relative" ref={newMenuRef}>
+                  <button
+                    onClick={() => setShowNewMenu(!showNewMenu)}
+                    className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200
+                      ${showNewMenu
+                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                        : 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white'
+                      }`}
+                  >
+                    <FilePlus className={`w-4 h-4 transition-transform duration-200 ${showNewMenu ? 'rotate-45' : ''}`} />
+                    新建
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showNewMenu ? 'rotate-180' : ''}`} />
                   </button>
+
+                  {/* Dropdown menu with animation */}
+                  <div className={`absolute right-0 top-full mt-2 z-30 transition-all duration-200 origin-top
+                    ${showNewMenu
+                      ? 'opacity-100 scale-100 visible'
+                      : 'opacity-0 scale-95 invisible pointer-events-none'
+                    }`}>
+                    <div className="relative bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-xl shadow-2xl shadow-black/40 overflow-hidden min-w-[200px]">
+                      {/* Glow effect */}
+                      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-teal-500/5 pointer-events-none" />
+
+                      {/* Menu items */}
+                      <div className="relative py-1">
+                        <button
+                          onClick={() => { setShowNewFolderDialog(true); setNewName(''); setShowNewMenu(false); }}
+                          className="group/item w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-500/20 text-amber-400 group-hover/item:bg-amber-500/30 group-hover/item:text-amber-300 transition-all">
+                            <FolderPlus className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-200 group-hover/item:text-white">新建文件夹</div>
+                            <div className="text-xs text-slate-500">创建新目录</div>
+                          </div>
+                        </button>
+
+                        <button
+                          onClick={() => { setShowNewFileDialog(true); setNewName(''); setShowNewMenu(false); }}
+                          className="group/item w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover/item:bg-emerald-500/30 group-hover/item:text-emerald-300 transition-all">
+                            <FilePlus className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-200 group-hover/item:text-white">新建文件</div>
+                            <div className="text-xs text-slate-500">创建空白文件</div>
+                          </div>
+                        </button>
+
+                        <div className="mx-4 my-1 border-t border-slate-700/50" />
+
+                        <button
+                          onClick={() => { fileInputRef.current?.click(); setShowNewMenu(false); }}
+                          className="group/item w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-500/20 text-indigo-400 group-hover/item:bg-indigo-500/30 group-hover/item:text-indigo-300 transition-all">
+                            <Upload className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-200 group-hover/item:text-white">上传文件</div>
+                            <div className="text-xs text-slate-500">从本地上传</div>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Drag overlay */}
@@ -732,22 +807,44 @@ export default function FilesPage() {
                 {/* FAB Button */}
                 <button
                   onClick={() => setShowFabMenu(!showFabMenu)}
-                  className="fixed bottom-20 right-4 w-14 h-14 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center hover:bg-emerald-500 transition-colors z-20"
+                  className={`fixed bottom-20 right-4 w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 z-20
+                    ${showFabMenu
+                      ? 'bg-rose-500 rotate-45 shadow-rose-500/40'
+                      : 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/40 hover:shadow-emerald-500/60'
+                    }`}
                 >
-                  {showFabMenu ? <X className="w-6 h-6" /> : <Plus className="w-6 h-6" />}
+                  <Plus className="w-6 h-6 text-white" />
                 </button>
 
-                {/* FAB Menu */}
+                {/* FAB Menu - Enhanced mobile experience */}
                 {showFabMenu && (
                   <div className="fixed bottom-36 right-4 z-20 flex flex-col gap-2">
-                    <button onClick={() => { setShowNewFolderDialog(true); setNewName(''); setShowFabMenu(false); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 text-white shadow-lg hover:bg-zinc-700 transition-colors">
-                      <FolderPlus className="w-5 h-5" /><span className="text-sm">新建文件夹</span>
+                    <button onClick={() => { setShowNewFolderDialog(true); setNewName(''); setShowFabMenu(false); }} className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800/95 backdrop-blur border border-slate-700/50 text-white shadow-xl hover:bg-slate-700/95 transition-all">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-amber-500/20 text-amber-400 group-hover:bg-amber-500/30 transition-all">
+                        <FolderPlus className="w-5 h-5" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">新建文件夹</div>
+                        <div className="text-xs text-slate-400">创建新目录</div>
+                      </div>
                     </button>
-                    <button onClick={() => { setShowNewFileDialog(true); setNewName(''); setShowFabMenu(false); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 text-white shadow-lg hover:bg-zinc-700 transition-colors">
-                      <FilePlus className="w-5 h-5" /><span className="text-sm">新建文件</span>
+                    <button onClick={() => { setShowNewFileDialog(true); setNewName(''); setShowFabMenu(false); }} className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800/95 backdrop-blur border border-slate-700/50 text-white shadow-xl hover:bg-slate-700/95 transition-all">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500/30 transition-all">
+                        <FilePlus className="w-5 h-5" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">新建文件</div>
+                        <div className="text-xs text-slate-400">创建空白文件</div>
+                      </div>
                     </button>
-                    <button onClick={() => { fileInputRef.current?.click(); setShowFabMenu(false); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 text-white shadow-lg hover:bg-zinc-700 transition-colors">
-                      <Upload className="w-5 h-5" /><span className="text-sm">上传文件</span>
+                    <button onClick={() => { fileInputRef.current?.click(); setShowFabMenu(false); }} className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800/95 backdrop-blur border border-slate-700/50 text-white shadow-xl hover:bg-slate-700/95 transition-all">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-500/20 text-indigo-400 group-hover:bg-indigo-500/30 transition-all">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">上传文件</div>
+                        <div className="text-xs text-slate-400">从本地上传</div>
+                      </div>
                     </button>
                   </div>
                 )}
