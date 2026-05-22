@@ -572,13 +572,13 @@ export default function FilesPage() {
               )}
 
               {/* Search */}
-              <div className="relative">
+              <div className="relative flex-1 md:flex-initial min-w-0 max-w-full md:max-w-52">
                 <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
                 <input type="text" placeholder="搜索..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40 w-40 md:w-52" />
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40" />
               </div>
 
-              <button onClick={() => setSortBy(sortBy === 'name' ? 'date' : 'name')} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white" title="切换排序"><ArrowUpDown className="w-4 h-4" /></button>
+              <button onClick={() => setSortBy(sortBy === 'name' ? 'date' : 'name')} className="hidden md:block p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white" title="切换排序"><ArrowUpDown className="w-4 h-4" /></button>
 
               {/* New dropdown - PC */}
               {!isMobile && (
@@ -725,7 +725,7 @@ export default function FilesPage() {
             )}
 
             {/* File List Header */}
-            <div className="grid grid-cols-[auto_40px_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            <div className="grid grid-cols-[auto_36px_1fr_auto] md:grid-cols-[auto_40px_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase tracking-wider">
               <button
                 onClick={toggleSelectAll}
                 className="w-8 flex items-center justify-center hover:bg-zinc-800 rounded transition-colors"
@@ -743,10 +743,10 @@ export default function FilesPage() {
               </button>
               <span></span>
               <span>名称</span>
-              <span className="w-20 text-right hidden md:block">大小</span>
-              <span className="w-32 text-right hidden md:block">修改时间</span>
-              <span className="w-20 text-right hidden md:block">权限</span>
-              <span className="w-8 hidden md:block"></span>
+              <span className="hidden md:block w-20 text-right">大小</span>
+              <span className="hidden md:block w-32 text-right">修改时间</span>
+              <span className="hidden md:block w-20 text-right">权限</span>
+              <span className="hidden md:block w-8"></span>
             </div>
 
             {/* File List */}
@@ -758,7 +758,7 @@ export default function FilesPage() {
               ) : (
                 filtered.map((file) => (
                   <div key={file.name}
-                    className={`grid grid-cols-[auto_40px_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/40
+                    className={`grid grid-cols-[auto_36px_1fr_auto] md:grid-cols-[auto_40px_1fr_auto_auto_auto_auto] gap-2 px-4 py-2 border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/40
                       ${selected.has(file.name) ? 'bg-emerald-500/10 border-l-2 border-l-emerald-500' : ''}`}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -801,22 +801,35 @@ export default function FilesPage() {
                       {isMobile && <span className="text-xs text-zinc-500">{formatSize(file.size)} &middot; {file.permissions}</span>}
                     </div>
 
-                    {/* Metadata - read only */}
-                    <span className="w-20 text-right text-xs text-zinc-400 hidden md:block select-none">{formatSize(file.size)}</span>
-                    <span className="w-32 text-right text-xs text-zinc-400 hidden md:block select-none">{file.modified}</span>
-                    <span className="w-20 text-right text-xs text-zinc-500 font-mono hidden md:block select-none cursor-pointer hover:text-emerald-400" onClick={() => { setChmodFile(file); }}>{file.permissions}</span>
-
-                    {/* More button - desktop only */}
+                    {/* More button - mobile & desktop */}
                     <button
                       ref={(el) => {
                         if (el) {
                           el.onclick = (e) => {
                             e.stopPropagation();
-                            const rect = el.getBoundingClientRect();
-                            const pos = getContextMenuPosition(rect.left, rect.bottom + 4);
-                            setContextMenu({
-                              x: pos.x,
-                              y: pos.y,
+                            if (isMobile) {
+                              setActionSheetFile(file);
+                              setShowActionSheet(true);
+                            } else {
+                              const rect = el.getBoundingClientRect();
+                              const pos = getContextMenuPosition(rect.left, rect.bottom + 4);
+                              setContextMenu({ x: pos.x, y: pos.y, file });
+                            }
+                          };
+                        }
+                      }}
+                      className="w-8 flex items-center justify-center hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-white"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+
+                    {/* Metadata - desktop only */}
+                    <span className="hidden md:block w-20 text-right text-xs text-zinc-400 select-none">{formatSize(file.size)}</span>
+                    <span className="hidden md:block w-32 text-right text-xs text-zinc-400 select-none">{file.modified}</span>
+                    <span className="hidden md:block w-20 text-right text-xs text-zinc-500 font-mono select-none cursor-pointer hover:text-emerald-400" onClick={() => { setChmodFile(file); }}>{file.permissions}</span>
+
+                    {/* More button - desktop only */}
+                    <span className="hidden md:block w-8"></span>
                               file
                             });
                           };
