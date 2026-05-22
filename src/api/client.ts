@@ -244,6 +244,10 @@ export const systemApi = {
   /** 9. 获取当前根路径 */
   getRoot: () =>
     apiClient.get('/files/root'),
+
+  /** 10. 获取系统状态 */
+  getStatus: () =>
+    apiClient.get('/system/status'),
 };
 
 // ===== Legacy Stub APIs (for old pages) =====
