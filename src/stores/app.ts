@@ -17,6 +17,7 @@ interface AppStore {
     mode: 'move' | 'copy' | null;
   } | null;
 
+  setActiveModule: (module: string) => void;
   setViewMode: (mode: ViewMode) => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
@@ -42,6 +43,7 @@ export const useAppStore = create<AppStore>()(
       globalLoading: false,
       clipboard: null,
 
+      setActiveModule: (module) => set({ activeModule: module }),
       setViewMode: (mode) => set({ viewMode: mode }),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),

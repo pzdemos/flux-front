@@ -13,7 +13,7 @@ const modules = [
 ];
 
 export default function Sidebar() {
-  const { activeModule, sidebarOpen, toggleSidebar, isMobile } = useAppStore();
+  const { activeModule, sidebarOpen, toggleSidebar, isMobile, setActiveModule } = useAppStore();
   const { user, logout } = useAuthStore();
 
   return (
@@ -60,6 +60,7 @@ export default function Sidebar() {
                 return (
                   <button
                     key={mod.id}
+                    onClick={() => setActiveModule(mod.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all cursor-default
                       ${isActive
                         ? 'bg-emerald-600/15 text-emerald-400 border border-emerald-600/20'
@@ -87,7 +88,10 @@ export default function Sidebar() {
                   <p className="text-xs text-zinc-500">管理员</p>
                 </div>
               </div>
-              <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors">
+              <button
+                onClick={() => setActiveModule('tools')}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors"
+              >
                 <Settings className="w-4 h-4" />
                 <span>设置</span>
               </button>
