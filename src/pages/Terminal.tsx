@@ -17,7 +17,7 @@ const WS_BASE = 'wss://www.haoaiganfan.top/flux/ws/tmux';
 const getToken = () => localStorage.getItem('flux_token') || '';
 const API_POLL_MS = 3000;
 
-export default function TerminalPage() {
+export default function TerminalPage({ visible }: { visible?: boolean }) {
   const { tabs, activeTabId, setTabs, setActiveTab } = useTerminalStore();
   const isMobile = useAppStore((s) => s.isMobile);
   const [fullscreen, setFullscreen] = useState(false);
@@ -110,7 +110,7 @@ export default function TerminalPage() {
               key={tab.id}
               className={`absolute inset-0 ${tab.id === activeTabId ? 'block' : 'hidden'}`}
             >
-              <TerminalInstance tab={tab} isMobile={isMobile} isActive={tab.id === activeTabId} />
+              <TerminalInstance tab={tab} isMobile={isMobile} isActive={tab.id === activeTabId} visible={!!visible} />
             </div>
           ))
         )}
@@ -153,7 +153,7 @@ function TabButton({ tab, isActive, onClick, onClose }: {
   );
 }
 
-function TerminalInstance({ tab, isMobile, isActive }: { tab: { id: string; sessionId: string }; isMobile: boolean; isActive: boolean }) {
+function TerminalInstance({ tab, isMobile, isActive, visible }: { tab: { id: string; sessionId: string }; isMobile: boolean; isActive: boolean; visible?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -341,6 +341,21 @@ function TerminalInstance({ tab, isMobile, isActive }: { tab: { id: string; sess
       return () => cancelAnimationFrame(raf);
     }
   }, [isActive]);
+
+  useEffect(() => {
+    if (visible && isActive) {
+      const raf = requestAnimationFrame(() => {
+        try {
+          fitAddonRef.current?.fit();
+          const dims = fitAddonRef.current?.proposeDimensions();
+          if (dims) {
+            send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+          }
+        } catch { /* ignore */ }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [visible, isActive, send]);
 
   const handleSearch = () => {
     if (searchAddonRef.current && searchQuery) {

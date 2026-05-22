@@ -15,8 +15,13 @@ export default function MainLayout() {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header />
-        <main className="flex-1 overflow-hidden">
-          {activeModule === 'terminal' ? <TerminalPage /> : <FilesPage />}
+        <main className="flex-1 overflow-hidden relative">
+          <div className={`absolute inset-0 ${activeModule === 'terminal' ? '' : 'hidden'}`}>
+            <TerminalPage visible={activeModule === 'terminal'} />
+          </div>
+          <div className={`absolute inset-0 ${activeModule === 'files' ? '' : 'hidden'}`}>
+            <FilesPage />
+          </div>
         </main>
       </div>
       <NotificationContainer />
