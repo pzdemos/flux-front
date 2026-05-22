@@ -41,6 +41,7 @@ export function useWebSocket({
   onErrorRef.current = onError;
 
   const connect = useCallback(() => {
+    if (!url) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     intentionallyClosed.current = false;

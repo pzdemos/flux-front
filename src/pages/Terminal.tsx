@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -6,29 +6,67 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminalStore, useTerminalSettings } from '@/stores/terminal';
 import { useAppStore } from '@/stores/app';
-import { useWebSocket } from '@/hooks/useWebSocket';
 import {
   Plus, X, Maximize2, Minimize2, Search,
-  Wifi, WifiOff, Trash2, Copy, XOctagon
+  Wifi, WifiOff, Trash2, Copy,
+  Terminal as TerminalIcon
 } from 'lucide-react';
-import type { TerminalTab } from '@/types';
+import { apiClient } from '@/api/client';
 
-const WS_URL = 'wss://www.haoaiganfan.top/terminal';
+const WS_BASE = 'wss://www.haoaiganfan.top/flux/ws/tmux';
+const getToken = () => localStorage.getItem('flux_token') || '';
+const API_POLL_MS = 3000;
 
 export default function TerminalPage() {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore();
+  const { tabs, activeTabId, setTabs, setActiveTab } = useTerminalStore();
   const isMobile = useAppStore((s) => s.isMobile);
   const [fullscreen, setFullscreen] = useState(false);
+  const bootRef = useRef(false);
 
+  // 从后端加载会话列表
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await apiClient.get('/tmux/sessions');
+      const sessions = res.data?.sessions || [];
+      const state = useTerminalStore.getState();
+      if (JSON.stringify(sessions.map((s: { name: string }) => s.name).sort()) !==
+          JSON.stringify(state.tabs.map(t => t.sessionId).sort())) {
+        setTabs(sessions);
+      }
+    } catch { /* ignore */ }
+  }, [setTabs]);
+
+  // 挂载时加载，并轮询同步跨窗口变更
   useEffect(() => {
-    if (tabs.length === 0) {
-      addTab();
+    loadSessions();
+    const timer = setInterval(loadSessions, API_POLL_MS);
+    return () => clearInterval(timer);
+  }, [loadSessions]);
+
+  // tabs 为空时自动创建 main 会话（仅首次）
+  useEffect(() => {
+    if (tabs.length === 0 && !bootRef.current) {
+      bootRef.current = true;
+      apiClient.post('/tmux/sessions', { name: 'main', workdir: '/' }).then(() => {
+        loadSessions();
+      }).catch(() => loadSessions());
     }
-  }, [tabs.length, addTab]);
+  }, [tabs.length, loadSessions]);
+
+  const handleAddTab = useCallback(() => {
+    const name = `term-${Date.now()}`;
+    apiClient.post('/tmux/sessions', { name, workdir: '/' }).then(() => loadSessions());
+  }, [loadSessions]);
+
+  const handleRemoveTab = useCallback((tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab) {
+      apiClient.delete(`/tmux/sessions/${tab.sessionId}`).then(() => loadSessions());
+    }
+  }, [tabs, loadSessions]);
 
   return (
     <div className={`flex flex-col h-full bg-zinc-950 ${fullscreen ? 'fixed inset-0 z-50' : ''}`}>
-      {/* Tab bar */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-zinc-800 bg-zinc-900 overflow-x-auto">
         {tabs.map((tab) => (
           <TabButton
@@ -36,11 +74,11 @@ export default function TerminalPage() {
             tab={tab}
             isActive={tab.id === activeTabId}
             onClick={() => setActiveTab(tab.id)}
-            onClose={() => removeTab(tab.id)}
+            onClose={() => handleRemoveTab(tab.id)}
           />
         ))}
         <button
-          onClick={() => addTab()}
+          onClick={handleAddTab}
           className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
         >
           <Plus className="w-4 h-4" />
@@ -54,23 +92,35 @@ export default function TerminalPage() {
         </button>
       </div>
 
-      {/* Terminal container */}
       <div className="flex-1 overflow-hidden relative">
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`absolute inset-0 ${tab.id === activeTabId ? 'block' : 'hidden'}`}
-          >
-            <TerminalInstance tab={tab} isMobile={isMobile} />
+        {tabs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-4">
+            <TerminalIcon className="w-12 h-12 text-zinc-700" />
+            <p className="text-sm">暂无终端会话</p>
+            <button
+              onClick={handleAddTab}
+              className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors text-sm"
+            >
+              <Plus className="w-4 h-4 inline mr-1" />新建终端
+            </button>
           </div>
-        ))}
+        ) : (
+          tabs.map((tab) => (
+            <div
+              key={tab.id}
+              className={`absolute inset-0 ${tab.id === activeTabId ? 'block' : 'hidden'}`}
+            >
+              <TerminalInstance tab={tab} isMobile={isMobile} />
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
 function TabButton({ tab, isActive, onClick, onClose }: {
-  tab: TerminalTab; isActive: boolean; onClick: () => void; onClose: () => void;
+  tab: { id: string; title: string; status: string }; isActive: boolean; onClick: () => void; onClose: () => void;
 }) {
   const statusColors: Record<string, string> = {
     CONNECTED: 'text-emerald-400',
@@ -83,7 +133,7 @@ function TabButton({ tab, isActive, onClick, onClose }: {
   return (
     <div
       onClick={onClick}
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer min-w-0 max-w-40
+      className={`group flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer min-w-0 max-w-40
         transition-colors border
         ${isActive
           ? 'bg-zinc-800 border-zinc-700 text-white'
@@ -103,40 +153,92 @@ function TabButton({ tab, isActive, onClick, onClose }: {
   );
 }
 
-function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boolean }) {
+function TerminalInstance({ tab, isMobile }: { tab: { id: string; sessionId: string }; isMobile: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
-  const updateTab = useTerminalStore((s) => s.updateTab);
+  const updateTabStatus = useTerminalStore((s) => s.updateTabStatus);
   const { fontSize, fontFamily, cursorBlink, scrollback } = useTerminalSettings();
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [wsState, setWsState] = useState<string>('CLOSED');
 
-  const { send, disconnect } = useWebSocket({
-    url: `${WS_URL}?token=${localStorage.getItem('flux_auth') ? JSON.parse(localStorage.getItem('flux_auth') || '{}').token : ''}`,
-    onOpen: () => {
-      updateTab(tab.id, { status: 'CONNECTED' });
-      setWsState('OPEN');
-    },
-    onMessage: (data) => {
-      if (xtermRef.current) {
-        xtermRef.current.write(data);
+  const wsRef = useRef<WebSocket | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let cancelled = false;
+    const token = getToken();
+    if (!token) return;
+
+    const url = `${WS_BASE}?token=${token}&session=${tab.sessionId}`;
+    ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      if (cancelled) { ws?.close(); return; }
+      setWsConnected(true);
+      updateTabStatus(tab.id, 'CONNECTED');
+      const dims = fitAddonRef.current?.proposeDimensions();
+      if (dims) {
+        ws?.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
       }
-    },
-    onClose: () => {
-      updateTab(tab.id, { status: 'DISCONNECTED' });
-      setWsState('CLOSED');
-    },
-    onError: () => {
-      updateTab(tab.id, { status: 'ERROR' });
-      setWsState('ERROR');
-    },
-    reconnect: true,
-    reconnectInterval: 2000,
-    maxReconnects: 10,
-  });
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        switch (msg.type) {
+          case 'output':
+            xtermRef.current?.write(msg.data);
+            break;
+          case 'connected':
+            setWsConnected(true);
+            updateTabStatus(tab.id, 'CONNECTED');
+            break;
+          case 'notice':
+            xtermRef.current?.write(msg.data);
+            break;
+          case 'exit':
+            xtermRef.current?.write(`\r\n\x1b[31m[进程退出] exitCode=${msg.exitCode}${msg.signal ? ` signal=${msg.signal}` : ''}\x1b[0m\r\n`);
+            setWsConnected(false);
+            updateTabStatus(tab.id, 'DISCONNECTED');
+            break;
+          case 'error':
+            xtermRef.current?.write(`\r\n\x1b[31m[错误] ${msg.message}\x1b[0m\r\n`);
+            setWsConnected(false);
+            updateTabStatus(tab.id, 'ERROR');
+            break;
+        }
+      } catch {
+        xtermRef.current?.write(e.data);
+      }
+    };
+
+    ws.onclose = () => {
+      if (cancelled) return;
+      setWsConnected(false);
+      updateTabStatus(tab.id, 'DISCONNECTED');
+    };
+
+    ws.onerror = () => {
+      if (cancelled) return;
+      setWsConnected(false);
+      updateTabStatus(tab.id, 'ERROR');
+    };
+
+    return () => {
+      cancelled = true;
+      ws?.close();
+    };
+  }, [tab.id, tab.sessionId, updateTabStatus]);
+
+  const send = useCallback((data: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(data);
+    }
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -182,8 +284,21 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
     term.open(containerRef.current);
     fitAddon.fit();
 
+    const sendResize = () => {
+      const dims = fitAddon.proposeDimensions();
+      if (dims) {
+        send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+      }
+    };
+
+    sendResize();
+
     term.onData((data) => {
-      send(data);
+      send(JSON.stringify({ type: 'input', data }));
+    });
+
+    term.onResize(({ cols, rows }) => {
+      send(JSON.stringify({ type: 'resize', cols, rows }));
     });
 
     xtermRef.current = term;
@@ -191,14 +306,16 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
     searchAddonRef.current = searchAddon;
 
     const handleResize = () => {
-      try { fitAddon.fit(); } catch { /* ignore */ }
+      try {
+        fitAddon.fit();
+        sendResize();
+      } catch { /* ignore */ }
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       term.dispose();
-      disconnect();
     };
   }, [tab.id]);
 
@@ -219,11 +336,19 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
   };
 
   const handleCopy = () => {
-    if (xtermRef.current) {
-      const selection = xtermRef.current.getSelection();
-      if (selection) {
-        navigator.clipboard.writeText(selection);
+    if (!xtermRef.current) return;
+    let text = xtermRef.current.getSelection();
+    if (!text) {
+      const buffer = xtermRef.current.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < buffer.length; i++) {
+        const line = buffer.getLine(i);
+        if (line) lines.push(line.translateToString());
       }
+      text = lines.join('\n');
+    }
+    if (text) {
+      navigator.clipboard.writeText(text).catch(() => {});
     }
   };
 
@@ -233,7 +358,6 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
 
   return (
     <div className="flex flex-col h-full">
-      {/* Terminal actions */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800 bg-zinc-900/50 shrink-0">
         <button onClick={() => setShowSearch(!showSearch)} className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
           <Search className="w-3.5 h-3.5" />
@@ -244,21 +368,22 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
         <button onClick={handleClear} className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
-        <button onClick={() => disconnect()} className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-red-400 transition-colors">
-          <XOctagon className="w-3.5 h-3.5" />
-        </button>
         <div className="flex-1" />
         <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-          {wsState === 'OPEN' ? (
-            <Wifi className="w-3 h-3 text-emerald-400" />
+          {wsConnected ? (
+            <>
+              <Wifi className="w-3 h-3 text-emerald-400" />
+              <span className="font-mono">OPEN</span>
+            </>
           ) : (
-            <WifiOff className="w-3 h-3 text-red-400" />
+            <>
+              <WifiOff className="w-3 h-3 text-red-400" />
+              <span className="font-mono">CLOSED</span>
+            </>
           )}
-          <span className="font-mono">{wsState}</span>
         </div>
       </div>
 
-      {/* Search bar */}
       {showSearch && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-800 bg-zinc-900/30">
           <Search className="w-3.5 h-3.5 text-zinc-500" />
@@ -280,8 +405,7 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
         </div>
       )}
 
-      {/* Terminal */}
-      <div className="flex-1 overflow-hidden p-1">
+      <div className="flex-1 overflow-hidden">
         <div
           ref={containerRef}
           className="w-full h-full"
@@ -289,7 +413,6 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
         />
       </div>
 
-      {/* Mobile shortcut bar */}
       {isMobile && (
         <div className="flex items-center gap-1 px-2 py-1.5 border-t border-zinc-800 bg-zinc-900 overflow-x-auto">
           {['ESC', 'TAB', 'CTRL', '↑', '↓', '←', '→', '|', '>', '&'].map((key) => (
@@ -305,7 +428,7 @@ function TerminalInstance({ tab, isMobile }: { tab: TerminalTab; isMobile: boole
                   '←': '\x1b[D',
                   '→': '\x1b[C',
                 };
-                if (keyMap[key]) send(keyMap[key]);
+                if (keyMap[key]) send(JSON.stringify({ type: 'input', data: keyMap[key] }));
               }}
               className="px-2.5 py-1 rounded bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors shrink-0 font-mono"
             >
