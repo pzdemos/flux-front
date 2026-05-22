@@ -284,6 +284,15 @@ function TerminalInstance({ tab, isMobile, isActive, visible }: { tab: { id: str
     term.open(containerRef.current);
     fitAddon.fit();
 
+    const textarea = containerRef.current?.querySelector('textarea');
+    if (textarea) {
+      textarea.setAttribute('inputmode', 'text');
+      textarea.setAttribute('autocomplete', 'off');
+      textarea.setAttribute('autocorrect', 'off');
+      textarea.setAttribute('autocapitalize', 'off');
+      textarea.setAttribute('spellcheck', 'false');
+    }
+
     const sendResize = () => {
       const dims = fitAddon.proposeDimensions();
       if (dims) {
@@ -442,27 +451,34 @@ function TerminalInstance({ tab, isMobile, isActive, visible }: { tab: { id: str
       </div>
 
       {isMobile && (
-        <div className="flex items-center gap-1 px-2 py-1.5 border-t border-zinc-800 bg-zinc-900 overflow-x-auto">
-          {['ESC', 'TAB', 'CTRL', '↑', '↓', '←', '→', '|', '>', '&'].map((key) => (
-            <button
-              key={key}
-              onClick={() => {
-                const keyMap: Record<string, string> = {
-                  'ESC': '\x1b',
-                  'TAB': '\t',
-                  'CTRL': '',
-                  '↑': '\x1b[A',
-                  '↓': '\x1b[B',
-                  '←': '\x1b[D',
-                  '→': '\x1b[C',
-                };
-                if (keyMap[key]) send(JSON.stringify({ type: 'input', data: keyMap[key] }));
-              }}
-              className="px-2.5 py-1 rounded bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors shrink-0 font-mono"
-            >
-              {key}
-            </button>
-          ))}
+        <div className="flex flex-col gap-1 px-2 py-2 border-t border-zinc-800 bg-zinc-900">
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '_', '/', '.', '~'].map((key) => (
+              <button
+                key={key}
+                onTouchStart={(e) => { e.preventDefault(); send(JSON.stringify({ type: 'input', data: key })); }}
+                onClick={() => send(JSON.stringify({ type: 'input', data: key }))}
+                className="w-8 h-9 rounded bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700 transition-colors shrink-0 font-mono flex items-center justify-center"
+              >
+                {key}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {['ESC', 'TAB', '↑', '↓', '←', '→', '|', '>', '&', '$', '#', '@', '!', '?', '*'].map((key) => (
+              <button
+                key={key}
+                onTouchStart={(e) => { e.preventDefault(); const km: Record<string, string> = { 'ESC': '\x1b', 'TAB': '\t', '↑': '\x1b[A', '↓': '\x1b[B', '←': '\x1b[D', '→': '\x1b[C' }; if (km[key]) send(JSON.stringify({ type: 'input', data: km[key] })); }}
+                onClick={() => {
+                  const km: Record<string, string> = { 'ESC': '\x1b', 'TAB': '\t', '↑': '\x1b[A', '↓': '\x1b[B', '←': '\x1b[D', '→': '\x1b[C' };
+                  if (km[key]) send(JSON.stringify({ type: 'input', data: km[key] })); else send(JSON.stringify({ type: 'input', data: key }));
+                }}
+                className="px-2.5 h-9 rounded bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors shrink-0 font-mono"
+              >
+                {key}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
