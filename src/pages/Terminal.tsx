@@ -110,7 +110,7 @@ export default function TerminalPage() {
               key={tab.id}
               className={`absolute inset-0 ${tab.id === activeTabId ? 'block' : 'hidden'}`}
             >
-              <TerminalInstance tab={tab} isMobile={isMobile} />
+              <TerminalInstance tab={tab} isMobile={isMobile} isActive={tab.id === activeTabId} />
             </div>
           ))
         )}
@@ -153,7 +153,7 @@ function TabButton({ tab, isActive, onClick, onClose }: {
   );
 }
 
-function TerminalInstance({ tab, isMobile }: { tab: { id: string; sessionId: string }; isMobile: boolean }) {
+function TerminalInstance({ tab, isMobile, isActive }: { tab: { id: string; sessionId: string }; isMobile: boolean; isActive: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -305,16 +305,20 @@ function TerminalInstance({ tab, isMobile }: { tab: { id: string; sessionId: str
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
 
-    const handleResize = () => {
+    const doFit = () => {
       try {
         fitAddon.fit();
         sendResize();
       } catch { /* ignore */ }
     };
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('resize', doFit);
+
+    const observer = new ResizeObserver(doFit);
+    observer.observe(containerRef.current);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', doFit);
+      observer.disconnect();
       term.dispose();
     };
   }, [tab.id]);
@@ -328,6 +332,15 @@ function TerminalInstance({ tab, isMobile }: { tab: { id: string; sessionId: str
       try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
     }
   }, [fontSize, fontFamily, cursorBlink, scrollback]);
+
+  useEffect(() => {
+    if (isActive) {
+      const raf = requestAnimationFrame(() => {
+        try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [isActive]);
 
   const handleSearch = () => {
     if (searchAddonRef.current && searchQuery) {
