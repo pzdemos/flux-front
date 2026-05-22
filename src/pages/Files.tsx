@@ -91,10 +91,6 @@ export default function FilesPage() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
-  // Inline chmod
-  const [chmodding, setChmodding] = useState<string | null>(null);
-  const [chmodValue, setChmodValue] = useState('');
-
   // Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -108,6 +104,8 @@ export default function FilesPage() {
   // Dialogs
   const [compressFiles, setCompressFiles] = useState<string[] | null>(null);
   const [extractFile, setExtractFile] = useState<FileItem | null>(null);
+  const [chmodFile, setChmodFile] = useState<FileItem | null>(null);
+  const [chmodValue, setChmodValue] = useState('755');
 
   // Drag & drop
   const [dragOver, setDragOver] = useState(false);
@@ -167,6 +165,32 @@ export default function FilesPage() {
       return () => window.removeEventListener('click', handler);
     }
   }, [showNewMenu]);
+
+  // Initialize chmodValue when chmodFile changes
+  useEffect(() => {
+    if (chmodFile) {
+      // Convert symbolic permission to numeric if needed
+      const perm = chmodFile.permissions;
+      if (perm.startsWith('-')) {
+        // Symbolic format like -rw-r--r--, convert to numeric
+        const owner = perm.slice(1, 4);
+        const group = perm.slice(4, 7);
+        const other = perm.slice(7, 10);
+
+        const toNumeric = (str: string) => {
+          let num = 0;
+          if (str.includes('r')) num += 4;
+          if (str.includes('w')) num += 2;
+          if (str.includes('x')) num += 1;
+          return num;
+        };
+
+        setChmodValue(`${toNumeric(owner)}${toNumeric(group)}${toNumeric(other)}`);
+      } else {
+        setChmodValue(perm);
+      }
+    }
+  }, [chmodFile]);
 
   const navigate = useCallback((file: FileItem) => {
     if (file.isDirectory) {
@@ -236,19 +260,17 @@ export default function FilesPage() {
     setContextMenu(null);
   };
 
-  const handleChmod = async (name: string) => {
-    if (!chmodValue) { setChmodding(null); return; }
-    const filePath = path === '/' ? `/${name}` : `${path}/${name}`;
+  const handleChmod = async (file: FileItem, permissions: string) => {
+    const filePath = file.path;
     try {
-      await fileApi.setPermissions(filePath, chmodValue);
-      addNotification({ type: 'success', message: `权限已修改为 ${chmodValue}` });
+      await fileApi.setPermissions(filePath, permissions);
+      addNotification({ type: 'success', message: `权限已修改为 ${permissions}` });
       loadFiles(path);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       addNotification({ type: 'error', message: `修改权限失败: ${msg}` });
     }
-    setChmodding(null);
-    setContextMenu(null);
+    setChmodFile(null);
   };
 
   const handleDelete = async (names: string[]) => {
@@ -680,13 +702,6 @@ export default function FilesPage() {
                             onKeyDown={(e) => { if (e.key === 'Enter') handleRename(file.name); if (e.key === 'Escape') setRenaming(null); }}
                             onBlur={() => handleRename(file.name)} />
                         </div>
-                      ) : chmodding === file.name ? (
-                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <Lock className="w-3.5 h-3.5 text-zinc-500" />
-                          <input value={chmodValue} onChange={(e) => setChmodValue(e.target.value)} placeholder="755" className="w-16 px-2 py-0.5 rounded bg-zinc-800 border border-emerald-500 text-sm text-white outline-none font-mono" autoFocus
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleChmod(file.name); if (e.key === 'Escape') setChmodding(null); }}
-                            onBlur={() => handleChmod(file.name)} />
-                        </div>
                       ) : (
                         <span
                           className="text-sm text-zinc-200 truncate cursor-pointer hover:text-white transition-colors"
@@ -699,7 +714,7 @@ export default function FilesPage() {
                     {/* Metadata - read only */}
                     <span className="w-20 text-right text-xs text-zinc-400 hidden md:block select-none">{formatSize(file.size)}</span>
                     <span className="w-32 text-right text-xs text-zinc-400 hidden md:block select-none">{file.modified}</span>
-                    <span className="w-20 text-right text-xs text-zinc-500 font-mono hidden md:block select-none cursor-pointer hover:text-emerald-400" onClick={() => { setChmodding(file.name); setChmodValue(file.permissions); }}>{file.permissions}</span>
+                    <span className="w-20 text-right text-xs text-zinc-500 font-mono hidden md:block select-none cursor-pointer hover:text-emerald-400" onClick={() => { setChmodFile(file); }}>{file.permissions}</span>
 
                     {/* More button - desktop only */}
                     <button
@@ -751,7 +766,10 @@ export default function FilesPage() {
                     </button>
                     <button onClick={() => {
                       const name = Array.from(selected)[0];
-                      if (name) { setChmodding(name); setChmodValue(''); }
+                      if (name) {
+                        const file = files.find(f => f.name === name);
+                        if (file) setChmodFile(file);
+                      }
                     }} disabled={selected.size !== 1} className={`group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 active:scale-95 transition-all shrink-0 ${selected.size === 1 ? '' : 'opacity-40'}`}>
                       <Lock className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">权限</span>
                     </button>
@@ -902,7 +920,7 @@ export default function FilesPage() {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Edit3 className="w-4 h-4" />重命名
           </button>
-          <button onClick={() => { setChmodding(contextMenu.file.name); setChmodValue(contextMenu.file.permissions); setContextMenu(null); }}
+          <button onClick={() => { setChmodFile(contextMenu.file); setContextMenu(null); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Lock className="w-4 h-4" />修改权限
           </button>
@@ -950,6 +968,120 @@ export default function FilesPage() {
       )}
 
       {/* ===== Dialogs ===== */}
+      {chmodFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setChmodFile(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Lock className="w-5 h-5 text-indigo-400" />
+                修改权限
+              </h3>
+              <button onClick={() => setChmodFile(null)} className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-400 mb-4">{chmodFile.path}</p>
+
+            {/* Permission presets */}
+            <div className="mb-5">
+              <label className="text-xs text-slate-500 mb-2 block">常用权限预设</label>
+              <div className="grid grid-cols-4 gap-2">
+                <button
+                  onClick={() => setChmodValue('755')}
+                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
+                    chmodValue === '755'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  755
+                </button>
+                <button
+                  onClick={() => setChmodValue('644')}
+                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
+                    chmodValue === '644'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  644
+                </button>
+                <button
+                  onClick={() => setChmodValue('600')}
+                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
+                    chmodValue === '600'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  600
+                </button>
+                <button
+                  onClick={() => setChmodValue('777')}
+                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
+                    chmodValue === '777'
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/50'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  777
+                </button>
+              </div>
+            </div>
+
+            {/* Custom input */}
+            <div className="mb-5">
+              <label className="text-xs text-slate-500 mb-2 block">自定义权限 (数字格式，如 755)</label>
+              <input
+                type="text"
+                value={chmodValue}
+                onChange={(e) => setChmodValue(e.target.value.replace(/[^0-7]/g, ''))}
+                placeholder="755"
+                maxLength={3}
+                className="w-full px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm font-mono outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
+              />
+            </div>
+
+            {/* Permission description */}
+            <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 mb-5">
+              <div className="text-xs text-slate-500 mb-2">权限说明</div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="flex items-center gap-1">
+                  <span className="font-mono text-emerald-400">7</span>
+                  <span className="text-slate-400">读写执行</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="font-mono text-amber-400">5</span>
+                  <span className="text-slate-400">读执行</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="font-mono text-rose-400">0</span>
+                  <span className="text-slate-400">无权限</span>
+                </div>
+              </div>
+              <div className="text-xs text-slate-500 mt-2">格式：所有者|组|其他 (如 755 = rwxr-xr-x)</div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleChmod(chmodFile, chmodValue)}
+                className="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-sm font-medium transition-all"
+              >
+                应用权限
+              </button>
+              <button
+                onClick={() => setChmodFile(null)}
+                className="px-4 py-2.5 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 text-sm transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {compressFiles && (
         <CompressDialog selectedPaths={compressFiles} currentPath={path} onClose={() => setCompressFiles(null)} onSuccess={() => loadFiles(path)} />
       )}
@@ -976,8 +1108,7 @@ export default function FilesPage() {
               setRenameValue(actionSheetFile.name);
               break;
             case 'chmod':
-              setChmodding(actionSheetFile.name);
-              setChmodValue(actionSheetFile.permissions);
+              setChmodFile(actionSheetFile);
               break;
             case 'move':
               setClipboard([actionSheetFile.path], 'move');
