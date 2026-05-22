@@ -5,7 +5,6 @@ import FileEditor from '@/components/file-manager/FileEditor';
 import CompressDialog from '@/components/file-manager/CompressDialog';
 import ExtractDialog from '@/components/file-manager/ExtractDialog';
 import TrashView from '@/components/file-manager/TrashView';
-import PasteBar from '@/components/file-manager/PasteBar';
 import ToolsView from '@/components/file-manager/ToolsView';
 import SelectionBar from '@/components/file-manager/SelectionBar';
 import ActionSheet from '@/components/file-manager/ActionSheet';
@@ -14,7 +13,7 @@ import {
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
-  FileArchive, Wrench, Plus, X, Check, Square
+  FileArchive, Wrench, Plus, X, Check, Square, ClipboardCheck
 } from 'lucide-react';
 import type { FileItem, RawFileItem } from '@/types';
 
@@ -509,8 +508,8 @@ export default function FilesPage() {
               </div>
             )}
 
-            {/* Batch delete bar (when items selected) */}
-            {selected.size > 0 && !isMobile && (
+            {/* Selection bar (when items selected or clipboard has content) */}
+            {(selected.size > 0 || clipboard) && !isMobile && (
               <SelectionBar
                 count={selected.size}
                 onCancel={() => setSelected(new Set())}
@@ -532,15 +531,9 @@ export default function FilesPage() {
                     if (file) handleDownload(file);
                   }
                 }}
-              />
-            )}
-
-            {/* Paste bar when clipboard has content */}
-            {clipboard && (
-              <PasteBar
-                currentPath={path}
-                onPaste={handlePaste}
-                onClear={clearClipboard}
+                clipboard={clipboard || undefined}
+                onPaste={clipboard ? () => handlePaste(clipboard.paths, clipboard.mode!, path) : undefined}
+                onClearClipboard={clearClipboard}
               />
             )}
 
@@ -662,30 +655,30 @@ export default function FilesPage() {
             {isMobile && (
               <>
                 {selected.size > 0 ? (
-                  <div className="fixed bottom-0 left-0 right-0 z-30 bg-zinc-900 border-t border-zinc-800 px-2 py-3 flex gap-1 overflow-x-auto">
-                    <button onClick={() => handleDelete(Array.from(selected))} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-zinc-800 shrink-0">
-                      <Trash2 className="w-5 h-5" /><span className="text-[10px]">删除</span>
+                  <div className="fixed bottom-0 left-0 right-0 z-30 backdrop-blur-xl bg-gradient-to-t from-slate-900 via-slate-900/95 to-slate-800/90 border-t border-slate-700/50 px-3 py-3 flex gap-2 overflow-x-auto shadow-2xl shadow-black/40">
+                    <button onClick={() => handleDelete(Array.from(selected))} className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-500/20 text-rose-200 border border-rose-500/30 active:scale-95 transition-all shrink-0">
+                      <Trash2 className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">删除</span>
                     </button>
-                    <button onClick={() => setClipboard(selectedPaths, 'move')} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 shrink-0">
-                      <Scissors className="w-5 h-5" /><span className="text-[10px]">移动</span>
+                    <button onClick={() => setClipboard(selectedPaths, 'move')} className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 active:scale-95 transition-all shrink-0">
+                      <Scissors className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">移动</span>
                     </button>
-                    <button onClick={() => setClipboard(selectedPaths, 'copy')} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-sky-400 hover:bg-zinc-800 shrink-0">
-                      <Copy className="w-5 h-5" /><span className="text-[10px]">复制</span>
+                    <button onClick={() => setClipboard(selectedPaths, 'copy')} className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 active:scale-95 transition-all shrink-0">
+                      <Copy className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">复制</span>
                     </button>
-                    <button onClick={() => setCompressFiles(selectedPaths)} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 shrink-0">
-                      <FileArchive className="w-5 h-5" /><span className="text-[10px]">压缩</span>
+                    <button onClick={() => setCompressFiles(selectedPaths)} className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 active:scale-95 transition-all shrink-0">
+                      <FileArchive className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">压缩</span>
                     </button>
                     <button onClick={() => {
                       const name = Array.from(selected)[0];
                       if (name) { setRenaming(name); setRenameValue(name); }
-                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
-                      <Edit3 className="w-5 h-5" /><span className="text-[10px]">重命名</span>
+                    }} disabled={selected.size !== 1} className={`group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 active:scale-95 transition-all shrink-0 ${selected.size === 1 ? '' : 'opacity-40'}`}>
+                      <Edit3 className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">重命名</span>
                     </button>
                     <button onClick={() => {
                       const name = Array.from(selected)[0];
                       if (name) { setChmodding(name); setChmodValue(''); }
-                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
-                      <Lock className="w-5 h-5" /><span className="text-[10px]">权限</span>
+                    }} disabled={selected.size !== 1} className={`group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 active:scale-95 transition-all shrink-0 ${selected.size === 1 ? '' : 'opacity-40'}`}>
+                      <Lock className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">权限</span>
                     </button>
                     <button onClick={() => {
                       const name = Array.from(selected)[0];
@@ -693,8 +686,8 @@ export default function FilesPage() {
                         const file = files.find(f => f.name === name);
                         if (file) handleDownload(file);
                       }
-                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
-                      <Download className="w-5 h-5" /><span className="text-[10px]">下载</span>
+                    }} disabled={selected.size !== 1} className={`group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 active:scale-95 transition-all shrink-0 ${selected.size === 1 ? '' : 'opacity-40'}`}>
+                      <Download className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">下载</span>
                     </button>
                     <button onClick={() => {
                       const name = Array.from(selected)[0];
@@ -705,12 +698,28 @@ export default function FilesPage() {
                           setShowActionSheet(true);
                         }
                       }
-                    }} disabled={selected.size !== 1} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg shrink-0 ${selected.size === 1 ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600'}`}>
-                      <MoreVertical className="w-5 h-5" /><span className="text-[10px]">更多</span>
+                    }} disabled={selected.size !== 1} className={`group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-700/50 text-slate-300 border border-slate-600/50 active:scale-95 transition-all shrink-0 ${selected.size === 1 ? '' : 'opacity-40'}`}>
+                      <MoreVertical className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">更多</span>
                     </button>
-                    <button onClick={() => setSelected(new Set())} className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 shrink-0">
-                      <X className="w-5 h-5" /><span className="text-[10px]">取消</span>
+                    <button onClick={() => setSelected(new Set())} className="group flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-slate-700/50 text-slate-400 border border-slate-600/50 active:scale-90 transition-all shrink-0">
+                      <X className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
                     </button>
+                  </div>
+                ) : clipboard && clipboard.mode ? (
+                  <div className="fixed bottom-0 left-0 right-0 z-30 backdrop-blur-xl bg-gradient-to-t from-slate-900 via-slate-900/95 to-slate-800/90 border-t border-slate-700/50 px-4 py-3 flex items-center justify-between shadow-2xl shadow-black/40">
+                    <div className="flex items-center gap-2 text-emerald-200">
+                      {clipboard.mode === 'move' ? <Scissors className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      <span className="text-xs">已{clipboard.mode === 'move' ? '剪切' : '复制'} {clipboard.paths.length} 项</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => { handlePaste(clipboard.paths, clipboard.mode!, path); clearClipboard(); }} className="flex items-center gap-1 px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 text-xs font-medium active:scale-95 transition-all">
+                        <ClipboardCheck className="w-3.5 h-3.5" />
+                        粘贴到此处
+                      </button>
+                      <button onClick={clearClipboard} className="p-2 rounded-lg bg-slate-700/50 text-slate-400 border border-slate-600/50 active:scale-90 transition-all">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center justify-around px-4 py-2.5 border-t border-zinc-800 bg-zinc-900 shrink-0">
