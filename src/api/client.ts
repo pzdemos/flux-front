@@ -207,6 +207,14 @@ export const trashApi = {
     apiClient.delete('/files/trash'),
 };
 
+// ===== Git API =====
+export const gitApi = {
+  status: (path: string) =>
+    apiClient.get('/files/git/status', { params: { path } }),
+  log: (path: string, page = 1, limit = 20) =>
+    apiClient.get('/files/git/log', { params: { path, page, limit } }),
+};
+
 // ===== System Tools API =====
 export const systemApi = {
   /** 1. 文件预览 */

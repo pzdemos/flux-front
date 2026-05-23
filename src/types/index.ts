@@ -16,6 +16,7 @@ export interface RawFileItem {
   size: number;
   permissions: string;
   modified: string;
+  isGitRepo?: boolean;
 }
 
 export interface FileItem {
@@ -27,6 +28,7 @@ export interface FileItem {
   permissions: string;
   owner: string;
   group: string;
+  isGitRepo?: boolean;
 }
 
 export interface FileListResponse {
@@ -125,6 +127,23 @@ export interface Notification {
 export type DeviceType = 'desktop' | 'tablet' | 'mobile';
 
 export type ViewMode = 'files' | 'trash' | 'tools' | 'node' | 'skill';
+
+// ===== Git Types =====
+export interface GitCommit {
+  hash: string;
+  author: string;
+  email: string;
+  date: string;
+  message: string;
+}
+
+export interface GitLogResponse {
+  commits: GitCommit[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
 
 // ===== Terminal Types =====
 export interface TerminalTab {

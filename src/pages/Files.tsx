@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { fileApi, uploadApi, apiClient, systemApi } from '@/api/client';
+import { fileApi, uploadApi, apiClient, systemApi, gitApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import type { AxiosError } from 'axios';
 import FileEditor from '@/components/file-manager/FileEditor';
@@ -14,9 +14,10 @@ import {
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
-  FileArchive, Wrench, Plus, X, Check, Square, ClipboardCheck, Server, BookOpen
+  FileArchive, Wrench, X, Check, Square, ClipboardCheck, Server, BookOpen,
+  GitBranch
 } from 'lucide-react';
-import type { FileItem, RawFileItem } from '@/types';
+import type { FileItem, RawFileItem, GitCommit } from '@/types';
 
 /** Convert backend raw items to frontend FileItem format */
 function normalizeItems(rawItems: RawFileItem[] | undefined, parentPath: string): FileItem[] {
@@ -30,6 +31,7 @@ function normalizeItems(rawItems: RawFileItem[] | undefined, parentPath: string)
     permissions: item.permissions || (item.type === 'directory' ? 'drwxr-xr-x' : '-rw-r--r--'),
     owner: 'root',
     group: 'root',
+    isGitRepo: item.isGitRepo,
   }));
 }
 
@@ -114,15 +116,21 @@ export default function FilesPage() {
   const [chmodFile, setChmodFile] = useState<FileItem | null>(null);
   const [chmodValue, setChmodValue] = useState('755');
 
+  // Git dialog
+  const [gitDir, setGitDir] = useState<FileItem | null>(null);
+  const [gitCommits, setGitCommits] = useState<GitCommit[]>([]);
+  const [gitPage, setGitPage] = useState(1);
+  const [gitTotal, setGitTotal] = useState(0);
+  const [gitHasMore, setGitHasMore] = useState(false);
+  const [gitLoading, setGitLoading] = useState(false);
+  const gitScrollRef = useRef<HTMLDivElement>(null);
+
   // Drag & drop
   const [dragOver, setDragOver] = useState(false);
 
   // Action sheet for mobile
   const [actionSheetFile, setActionSheetFile] = useState<FileItem | null>(null);
   const [showActionSheet, setShowActionSheet] = useState(false);
-
-  // FAB menu
-  const [showFabMenu, setShowFabMenu] = useState(false);
 
   const isMobile = useAppStore((s) => s.isMobile);
   const viewMode = useAppStore((s) => s.viewMode);
@@ -347,6 +355,44 @@ export default function FilesPage() {
     setChmodFile(null);
   };
 
+  const openGitLog = useCallback(async (dir: FileItem) => {
+    setGitDir(dir);
+    setGitCommits([]);
+    setGitPage(1);
+    setGitTotal(0);
+    setGitHasMore(false);
+    setGitLoading(true);
+    try {
+      const res = await gitApi.log(dir.path, 1, 20);
+      const data = res.data as { commits: GitCommit[]; total: number; hasMore: boolean };
+      setGitCommits(data.commits);
+      setGitTotal(data.total);
+      setGitHasMore(data.hasMore);
+    } catch {
+      addNotification({ type: 'error', message: '获取 Git 提交记录失败，可能不是 Git 仓库' });
+      setGitDir(null);
+    } finally {
+      setGitLoading(false);
+    }
+  }, [addNotification]);
+
+  const loadMoreGitCommits = useCallback(async () => {
+    if (!gitDir || gitLoading || !gitHasMore) return;
+    setGitLoading(true);
+    const nextPage = gitPage + 1;
+    try {
+      const res = await gitApi.log(gitDir.path, nextPage, 20);
+      const data = res.data as { commits: GitCommit[]; total: number; hasMore: boolean };
+      setGitCommits(prev => [...prev, ...data.commits]);
+      setGitPage(nextPage);
+      setGitHasMore(data.hasMore);
+    } catch {
+      addNotification({ type: 'error', message: '加载更多提交记录失败' });
+    } finally {
+      setGitLoading(false);
+    }
+  }, [gitDir, gitLoading, gitHasMore, gitPage, addNotification]);
+
   const handleDelete = async (names: string[]) => {
     const confirmed = window.confirm(`确定要删除以下 ${names.length} 个项目？\n${names.join('\n')}\n\n删除后将无法恢复！`);
     if (!confirmed) return;
@@ -536,6 +582,29 @@ export default function FilesPage() {
               </button>
             );
           })}
+          <div className="ml-auto flex items-center gap-1 md:hidden">
+            <button
+              onClick={() => { setShowNewFolderDialog(true); setNewName(''); }}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+              title="新建文件夹"
+            >
+              <FolderPlus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setShowNewFileDialog(true); setNewName(''); }}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+              title="新建文件"
+            >
+              <FilePlus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
+              title="上传文件"
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Render different views */}
@@ -932,10 +1001,21 @@ export default function FilesPage() {
                             onBlur={() => handleRename(file.name)} />
                         </div>
                       ) : (
-                        <span
-                          className="text-sm text-zinc-200 truncate cursor-pointer hover:text-white transition-colors"
-                          onClick={() => navigate(file)}
-                        >{file.name}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className="text-sm text-zinc-200 truncate cursor-pointer hover:text-white transition-colors"
+                            onClick={() => navigate(file)}
+                          >{file.name}</span>
+                          {file.isDirectory && file.isGitRepo && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openGitLog(file); }}
+                              className="shrink-0 p-0.5 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors"
+                              title="查看 Git 提交记录"
+                            >
+                              <GitBranch className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </span>
                       )}
                       {isMobile && <span className="text-xs text-zinc-500">{formatSize(file.size)} &middot; {file.permissions}</span>}
                     </div>
@@ -1047,58 +1127,7 @@ export default function FilesPage() {
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-around px-4 py-2.5 border-t border-zinc-800 bg-zinc-900 shrink-0">
-                    <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-0.5 text-zinc-400 hover:text-emerald-400">
-                      <Upload className="w-5 h-5" /><span className="text-[10px]">上传</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* FAB Button */}
-                <button
-                  onClick={() => setShowFabMenu(!showFabMenu)}
-                  className={`fixed bottom-20 right-4 w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 z-20
-                    ${showFabMenu
-                      ? 'bg-rose-500 rotate-45 shadow-rose-500/40'
-                      : 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/40 hover:shadow-emerald-500/60'
-                    }`}
-                >
-                  <Plus className="w-6 h-6 text-white" />
-                </button>
-
-                {/* FAB Menu - Enhanced mobile experience */}
-                {showFabMenu && (
-                  <div className="fixed bottom-36 right-4 z-20 flex flex-col gap-2">
-                    <button onClick={() => { setShowNewFolderDialog(true); setNewName(''); setShowFabMenu(false); }} className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800/95 backdrop-blur border border-slate-700/50 text-white shadow-xl hover:bg-slate-700/95 transition-all">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-amber-500/20 text-amber-400 group-hover:bg-amber-500/30 transition-all">
-                        <FolderPlus className="w-5 h-5" />
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-medium">新建文件夹</div>
-                        <div className="text-xs text-slate-400">创建新目录</div>
-                      </div>
-                    </button>
-                    <button onClick={() => { setShowNewFileDialog(true); setNewName(''); setShowFabMenu(false); }} className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800/95 backdrop-blur border border-slate-700/50 text-white shadow-xl hover:bg-slate-700/95 transition-all">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500/30 transition-all">
-                        <FilePlus className="w-5 h-5" />
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-medium">新建文件</div>
-                        <div className="text-xs text-slate-400">创建空白文件</div>
-                      </div>
-                    </button>
-                    <button onClick={() => { fileInputRef.current?.click(); setShowFabMenu(false); }} className="group flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800/95 backdrop-blur border border-slate-700/50 text-white shadow-xl hover:bg-slate-700/95 transition-all">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-500/20 text-indigo-400 group-hover:bg-indigo-500/30 transition-all">
-                        <Upload className="w-5 h-5" />
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-medium">上传文件</div>
-                        <div className="text-xs text-slate-400">从本地上传</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
+                ) : null}
               </>
             )}
 
@@ -1320,6 +1349,78 @@ export default function FilesPage() {
       )}
       {extractFile && (
         <ExtractDialog filePath={extractFile.path} fileName={extractFile.name} currentPath={path} onClose={() => setExtractFile(null)} onSuccess={() => loadFiles(path)} />
+      )}
+
+      {/* ===== Git Commit Log Dialog ===== */}
+      {gitDir && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setGitDir(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <GitBranch className="w-5 h-5 text-emerald-400" />
+                Git 提交记录
+              </h3>
+              <button onClick={() => setGitDir(null)} className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-400 mb-4 truncate">{gitDir.path}</p>
+
+            <div className="text-xs text-slate-500 mb-3">共 {gitTotal} 次提交</div>
+
+            <div
+              ref={gitScrollRef}
+              className="flex-1 overflow-auto space-y-1 min-h-0"
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
+                  loadMoreGitCommits();
+                }
+              }}
+            >
+              {gitCommits.length === 0 && gitLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                </div>
+              ) : (
+                gitCommits.map((commit) => (
+                  <div key={commit.hash} className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-zinc-200 font-medium truncate">{commit.message}</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          <span className="font-mono text-emerald-400/70">{commit.hash.slice(0, 7)}</span>
+                          <span className="mx-1.5">&middot;</span>
+                          {commit.author}
+                        </p>
+                      </div>
+                      <span className="text-xs text-slate-500 shrink-0">{formatDate(commit.date)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+              {gitHasMore && (
+                <div className="flex items-center justify-center py-3">
+                  {gitLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                  ) : (
+                    <button
+                      onClick={loadMoreGitCommits}
+                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                      加载更多
+                    </button>
+                  )}
+                </div>
+              )}
+              {!gitHasMore && gitCommits.length > 0 && (
+                <p className="text-center text-xs text-slate-600 py-3">已显示全部提交</p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Action Sheet for mobile */}
