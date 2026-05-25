@@ -258,6 +258,39 @@ export const systemApi = {
     apiClient.get('/system/status'),
 };
 
+// ===== Process Management API =====
+export const processApi = {
+  list: () =>
+    apiClient.get('/process'),
+
+  start: (name: string, command: string, cwd?: string) =>
+    apiClient.post('/process', { name, command, cwd }),
+
+  get: (name: string) =>
+    apiClient.get(`/process/${encodeURIComponent(name)}`),
+
+  stop: (name: string) =>
+    apiClient.delete(`/process/${encodeURIComponent(name)}`),
+
+  restart: (name: string) =>
+    apiClient.post(`/process/${encodeURIComponent(name)}/restart`),
+
+  getLogs: (name: string, lines?: number) =>
+    apiClient.get(`/process/${encodeURIComponent(name)}/logs`, { params: { lines } }),
+
+  systemProcesses: () =>
+    apiClient.get('/process/system'),
+
+  listDefinitions: () =>
+    apiClient.get('/process/definitions'),
+
+  saveDefinition: (name: string, command: string, cwd?: string) =>
+    apiClient.post('/process/definitions', { name, command, cwd }),
+
+  deleteDefinition: (id: number) =>
+    apiClient.delete(`/process/definitions/${id}`),
+};
+
 // ===== Legacy Stub APIs (for old pages) =====
 export const databaseApi = {
   listKeys: () => apiClient.get('/db/keys'),

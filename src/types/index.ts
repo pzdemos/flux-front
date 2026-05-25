@@ -145,6 +145,34 @@ export interface GitLogResponse {
   hasMore: boolean;
 }
 
+// ===== Process Types =====
+export interface ManagedProcess {
+  name: string;
+  pid: number;
+  status: 'running' | 'stopped' | 'exited' | 'error';
+  command: string;
+  cwd: string;
+  exitCode: number | null;
+  signal: string | null;
+  createdAt: string;
+  startedAt: string;
+  stoppedAt: string | null;
+}
+
+export interface ProcessLogs {
+  stdout: string;
+  stderr: string;
+}
+
+export interface ProcessDefinition {
+  id: number;
+  name: string;
+  command: string;
+  cwd: string | null;
+  user_id: number;
+  created_at: string;
+}
+
 // ===== Terminal Types =====
 export interface TerminalTab {
   id: string;

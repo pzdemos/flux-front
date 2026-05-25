@@ -7,11 +7,13 @@ import {
   LogOut,
   Settings,
   Terminal,
+  Activity,
 } from 'lucide-react';
 
 const modules = [
   { id: 'files' as const, label: '文件管理', icon: FolderOpen },
   { id: 'terminal' as const, label: '终端管理', icon: Terminal },
+  { id: 'process' as const, label: '进程管理', icon: Activity },
 ];
 
 export default function Sidebar() {

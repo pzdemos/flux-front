@@ -3,6 +3,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import FilesPage from '@/pages/Files';
 import TerminalPage from '@/pages/Terminal';
+import ProcessPage from '@/pages/Process';
 import NotificationContainer from '@/components/shared/NotificationContainer';
 import { useAppStore } from '@/stores/app';
 
@@ -21,6 +22,9 @@ export default function MainLayout() {
           </div>
           <div className={`absolute inset-0 ${activeModule === 'files' ? '' : 'hidden'}`}>
             <FilesPage />
+          </div>
+          <div className={`absolute inset-0 ${activeModule === 'process' ? '' : 'hidden'}`}>
+            <ProcessPage />
           </div>
         </main>
       </div>
