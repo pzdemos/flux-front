@@ -148,15 +148,18 @@ export interface GitLogResponse {
 // ===== Process Types =====
 export interface ManagedProcess {
   name: string;
-  pid: number;
-  status: 'running' | 'stopped' | 'exited' | 'error';
+  pid: number | null;
+  status: string;
   command: string;
   cwd: string;
-  exitCode: number | null;
-  signal: string | null;
-  createdAt: string;
-  startedAt: string;
-  stoppedAt: string | null;
+  cpu: number;
+  memory: number;
+  uptime: number | null;
+  restarts: number;
+  execInterpreter: string;
+  execMode: string;
+  createdAt: number | null;
+  pmId: number | null;
 }
 
 export interface ProcessLogs {

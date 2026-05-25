@@ -7,6 +7,46 @@ import {
   Loader2, Trash2, Save, FileText
 } from 'lucide-react';
 
+function formatUptime(ms: number | null) {
+  if (!ms) return '-';
+  const s = Math.floor((Date.now() - ms) / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s % 60}s`;
+}
+
+function formatMem(bytes: number) {
+  if (!bytes) return '0 B';
+  const mb = (bytes / 1024 / 1024).toFixed(1);
+  if (parseFloat(mb) < 1) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${mb} MB`;
+}
+
+const statusBadge = (status: string) => {
+  const map: Record<string, string> = {
+    online: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    stopped: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+    errored: 'bg-red-500/20 text-red-400 border-red-500/30',
+    'one-launch-status': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    launching: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  };
+  const label: Record<string, string> = {
+    online: '运行中',
+    stopped: '已停止',
+    errored: '异常',
+    'one-launch-status': '启动中',
+    launching: '启动中',
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium border ${map[status] || 'bg-zinc-500/20 text-zinc-400'}`}>
+      {label[status] || status}
+    </span>
+  );
+};
+
 export default function ProcessPage() {
   const [processes, setProcesses] = useState<ManagedProcess[]>([]);
   const [definitions, setDefinitions] = useState<ProcessDefinition[]>([]);
@@ -56,8 +96,8 @@ export default function ProcessPage() {
       await processApi.stop(name);
       addNotification({ type: 'success', message: `进程 "${name}" 已停止` });
       load();
-    } catch {
-      addNotification({ type: 'error', message: '停止失败' });
+    } catch (err: any) {
+      addNotification({ type: 'error', message: err?.response?.data?.error || '停止失败' });
     }
   };
 
@@ -100,24 +140,13 @@ export default function ProcessPage() {
     }
   };
 
-  const statusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      running: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-      stopped: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
-      exited: 'bg-red-500/20 text-red-400 border-red-500/30',
-      error: 'bg-red-500/20 text-red-400 border-red-500/30',
-    };
-    return (
-      <span className={`px-2 py-0.5 rounded text-xs font-medium border ${colors[status] || 'bg-zinc-500/20 text-zinc-400'}`}>
-        {status === 'running' ? '运行中' : status === 'stopped' ? '已停止' : status === 'exited' ? '已退出' : status}
-      </span>
-    );
-  };
+  const running = processes.filter(p => p.status === 'online');
+  const others = processes.filter(p => p.status !== 'online');
 
   return (
     <div className="flex flex-col h-full overflow-auto p-4">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Node 进程管理</h2>
+        <h2 className="text-lg font-semibold text-white">Node 进程管理 (PM2)</h2>
         <button
           onClick={() => setShowStart(true)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm transition-colors"
@@ -135,7 +164,7 @@ export default function ProcessPage() {
           </div>
           <div className="space-y-3">
             <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="进程名称" className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm outline-none focus:ring-1 focus:ring-emerald-500" />
-            <input value={newCommand} onChange={(e) => setNewCommand(e.target.value)} placeholder="启动命令 (如 node app.js)" className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm outline-none focus:ring-1 focus:ring-emerald-500" />
+            <input value={newCommand} onChange={(e) => setNewCommand(e.target.value)} placeholder="启动命令 (如 app.js 或 npm start)" className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm outline-none focus:ring-1 focus:ring-emerald-500" />
             <input value={newCwd} onChange={(e) => setNewCwd(e.target.value)} placeholder="工作目录 (可选)" className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm outline-none focus:ring-1 focus:ring-emerald-500" />
             <div className="flex gap-2">
               <button onClick={handleStart} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm">启动</button>
@@ -152,27 +181,23 @@ export default function ProcessPage() {
             <h3 className="text-sm font-medium text-white font-mono">{logs.name} 日志</h3>
             <button onClick={() => setLogs(null)} className="text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>
           </div>
-          {logs.stderr && (
-            <pre className="text-xs text-red-400 font-mono bg-zinc-950 rounded p-3 mb-2 overflow-x-auto whitespace-pre-wrap max-h-40">{logs.stderr}</pre>
-          )}
-          <pre className="text-xs text-zinc-300 font-mono bg-zinc-950 rounded p-3 overflow-x-auto whitespace-pre-wrap max-h-60">{logs.stdout || '(无输出)'}</pre>
+          <pre className="text-xs text-zinc-300 font-mono bg-zinc-950 rounded p-3 overflow-x-auto whitespace-pre-wrap max-h-80">{logs.stdout || '(无输出)'}</pre>
         </div>
       )}
 
-      {/* Process list */}
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-emerald-500" /></div>
       ) : processes.length === 0 && definitions.length === 0 ? (
         <div className="text-center py-16 text-zinc-500">
           <Activity className="w-12 h-12 mx-auto mb-2 opacity-30" />
-          <p>暂无运行中的进程</p>
-          <p className="text-xs mt-1">点击"启动进程"开始</p>
+          <p>暂无 PM2 进程</p>
+          <p className="text-xs mt-1">点击"启动进程"通过 PM2 管理</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Running processes */}
-          {processes.filter(p => p.status === 'running').map((p) => (
-            <div key={p.name} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+          {/* Running */}
+          {running.map((p) => (
+            <div key={p.name} className="bg-zinc-900 border border-emerald-500/10 rounded-lg p-3">
               <div className="flex items-start gap-3">
                 <div className="p-1.5 rounded bg-emerald-500/10 shrink-0">
                   <Activity className="w-4 h-4 text-emerald-400" />
@@ -181,10 +206,16 @@ export default function ProcessPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium text-white">{p.name}</span>
                     {statusBadge(p.status)}
-                    <span className="text-xs text-zinc-500 font-mono">PID {p.pid}</span>
+                    {p.pid && <span className="text-xs text-zinc-500 font-mono">PID {p.pid}</span>}
+                    <span className="text-xs text-zinc-500">#{p.pmId}</span>
                   </div>
-                  <p className="text-xs text-zinc-400 mt-1 font-mono">{p.command}</p>
-                  <p className="text-xs text-zinc-600 mt-0.5">{p.cwd}</p>
+                  <p className="text-xs text-zinc-400 mt-1 font-mono truncate">{p.command}</p>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-500">
+                    <span>CPU: {p.cpu.toFixed(1)}%</span>
+                    <span>内存: {formatMem(p.memory)}</span>
+                    <span>运行: {formatUptime(p.uptime)}</span>
+                    <span>重启: {p.restarts} 次</span>
+                  </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <button onClick={() => handleShowLogs(p.name)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-emerald-400 transition-colors" title="日志">
@@ -201,11 +232,11 @@ export default function ProcessPage() {
             </div>
           ))}
 
-          {/* Exited processes */}
-          {processes.filter(p => p.status !== 'running').length > 0 && (
+          {/* Stopped/Errored */}
+          {others.length > 0 && (
             <>
-              <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider pt-2">已退出/已停止</h3>
-              {processes.filter(p => p.status !== 'running').map((p) => (
+              <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider pt-2">已停止 / 异常</h3>
+              {others.map((p) => (
                 <div key={p.name} className="bg-zinc-900/50 border border-zinc-800/50 rounded-lg p-3 opacity-70">
                   <div className="flex items-start gap-3">
                     <div className="p-1.5 rounded bg-zinc-800 shrink-0">
@@ -215,13 +246,16 @@ export default function ProcessPage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm text-zinc-400">{p.name}</span>
                         {statusBadge(p.status)}
-                        {p.exitCode !== null && <span className="text-xs text-zinc-600">exit {p.exitCode}</span>}
+                        {p.restarts > 0 && <span className="text-xs text-zinc-600">重启 {p.restarts} 次</span>}
                       </div>
-                      <p className="text-xs text-zinc-600 font-mono">{p.command}</p>
+                      <p className="text-xs text-zinc-600 font-mono truncate">{p.command}</p>
                     </div>
                     <div className="flex gap-1 shrink-0">
                       <button onClick={() => handleShowLogs(p.name)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-emerald-400 transition-colors" title="日志">
                         <FileText className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => handleRestart(p.name)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-blue-400 transition-colors" title="重启">
+                        <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -230,7 +264,7 @@ export default function ProcessPage() {
             </>
           )}
 
-          {/* Saved definitions */}
+          {/* Definitions */}
           {definitions.length > 0 && (
             <>
               <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider pt-4">已保存的定义</h3>
@@ -275,14 +309,11 @@ export default function ProcessPage() {
         </div>
       )}
 
-      {/* Quick actions from definitions */}
-      {processes.length > 0 && definitions.length === 0 && (
+      {/* Quick save */}
+      {running.length > 0 && definitions.length === 0 && (
         <div className="mt-4 pt-4 border-t border-zinc-800">
           <button
-            onClick={() => {
-              const p = processes[0];
-              handleSaveDefinition(p.name, p.command, p.cwd);
-            }}
+            onClick={() => handleSaveDefinition(running[0].name, running[0].command, running[0].cwd)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-sm transition-colors"
           >
             <Save className="w-4 h-4" /> 保存当前进程定义为快捷启动
