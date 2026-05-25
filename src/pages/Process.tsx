@@ -18,13 +18,6 @@ function formatUptime(ms: number | null) {
   return `${m}m ${s % 60}s`;
 }
 
-function formatMem(bytes: number) {
-  if (!bytes) return '0 B';
-  const mb = (bytes / 1024 / 1024).toFixed(1);
-  if (parseFloat(mb) < 1) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${mb} MB`;
-}
-
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
     online: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
@@ -211,8 +204,6 @@ export default function ProcessPage() {
                   </div>
                   <p className="text-xs text-zinc-400 mt-1 font-mono truncate">{p.command}</p>
                   <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-500">
-                    <span>CPU: {p.cpu.toFixed(1)}%</span>
-                    <span>内存: {formatMem(p.memory)}</span>
                     <span>运行: {formatUptime(p.uptime)}</span>
                     <span>重启: {p.restarts} 次</span>
                   </div>

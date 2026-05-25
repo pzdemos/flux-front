@@ -152,13 +152,8 @@ export interface ManagedProcess {
   status: string;
   command: string;
   cwd: string;
-  cpu: number;
-  memory: number;
   uptime: number | null;
   restarts: number;
-  execInterpreter: string;
-  execMode: string;
-  createdAt: number | null;
   pmId: number | null;
 }
 
