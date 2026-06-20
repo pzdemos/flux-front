@@ -55,8 +55,17 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
 
   const handleAddTab = useCallback(() => {
     const name = `term-${Date.now()}`;
-    apiClient.post('/tmux/sessions', { name, workdir: '/' }).then(() => loadSessions());
-  }, [loadSessions]);
+    apiClient.post('/tmux/sessions', { name, workdir: '/' }).then(() => {
+      // 创建成功后立刻拉取列表并主动切到新会话
+      apiClient.get('/tmux/sessions').then((res) => {
+        const sessions = res.data?.sessions || [];
+        setTabs(sessions);
+        // 找到刚创建的 session 并激活
+        const newTab = useTerminalStore.getState().tabs.find(t => t.sessionId === name);
+        if (newTab) useTerminalStore.getState().setActiveTab(newTab.id);
+      }).catch(() => loadSessions());
+    }).catch(() => loadSessions());
+  }, [loadSessions, setTabs]);
 
   const handleRemoveTab = useCallback((tabId: string) => {
     const tab = tabs.find(t => t.id === tabId);
@@ -164,79 +173,127 @@ function TerminalInstance({ tab, isMobile, isActive, visible }: { tab: { id: str
   const [searchQuery, setSearchQuery] = useState('');
 
   const wsRef = useRef<WebSocket | null>(null);
+  const inputBufferRef = useRef<string[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
     let cancelled = false;
-    const token = getToken();
-    if (!token) return;
+    let manualClose = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attemptCount = 0;
 
-    const url = `${WS_BASE}?token=${token}&session=${tab.sessionId}`;
-    ws = new WebSocket(url);
-    wsRef.current = ws;
+    const MAX_RECONNECT = 5;
+    const BACKOFF_BASE_MS = 1000;
 
-    ws.onopen = () => {
-      if (cancelled) { ws?.close(); return; }
-      setWsConnected(true);
-      updateTabStatus(tab.id, 'CONNECTED');
-      const dims = fitAddonRef.current?.proposeDimensions();
-      if (dims) {
-        ws?.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
-      }
-    };
-
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        switch (msg.type) {
-          case 'output':
-            xtermRef.current?.write(msg.data);
-            break;
-          case 'connected':
-            setWsConnected(true);
-            updateTabStatus(tab.id, 'CONNECTED');
-            break;
-          case 'notice':
-            xtermRef.current?.write(msg.data);
-            break;
-          case 'exit':
-            xtermRef.current?.write(`\r\n\x1b[31m[进程退出] exitCode=${msg.exitCode}${msg.signal ? ` signal=${msg.signal}` : ''}\x1b[0m\r\n`);
-            setWsConnected(false);
-            updateTabStatus(tab.id, 'DISCONNECTED');
-            break;
-          case 'error':
-            xtermRef.current?.write(`\r\n\x1b[31m[错误] ${msg.message}\x1b[0m\r\n`);
-            setWsConnected(false);
-            updateTabStatus(tab.id, 'ERROR');
-            break;
+    const flushPending = () => {
+      while (inputBufferRef.current.length > 0) {
+        const data = inputBufferRef.current[0];
+        if (ws?.readyState === WebSocket.OPEN) {
+          try { ws.send(data); } catch (_) { break; }
+          inputBufferRef.current.shift();
+        } else {
+          break;
         }
-      } catch {
-        xtermRef.current?.write(e.data);
       }
     };
 
-    ws.onclose = () => {
+    const connect = () => {
       if (cancelled) return;
-      setWsConnected(false);
-      updateTabStatus(tab.id, 'DISCONNECTED');
+      const token = getToken();
+      if (!token) return;
+
+      const url = `${WS_BASE}?token=${token}&session=${tab.sessionId}`;
+      updateTabStatus(tab.id, attemptCount === 0 ? 'CONNECTING' : 'RECONNECTING');
+      ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (cancelled) { try { ws?.close(); } catch (_) {} return; }
+        setWsConnected(true);
+        updateTabStatus(tab.id, 'CONNECTED');
+        attemptCount = 0;
+        const dims = fitAddonRef.current?.proposeDimensions();
+        if (dims) {
+          ws?.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+        }
+        flushPending();
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          switch (msg.type) {
+            case 'output':
+              xtermRef.current?.write(msg.data);
+              break;
+            case 'connected':
+              setWsConnected(true);
+              updateTabStatus(tab.id, 'CONNECTED');
+              break;
+            case 'notice':
+              xtermRef.current?.write(msg.data);
+              break;
+            case 'exit':
+              xtermRef.current?.write(`\r\n\x1b[31m[进程退出] exitCode=${msg.exitCode}${msg.signal ? ` signal=${msg.signal}` : ''}\x1b[0m\r\n`);
+              setWsConnected(false);
+              updateTabStatus(tab.id, 'DISCONNECTED');
+              break;
+            case 'error':
+              xtermRef.current?.write(`\r\n\x1b[31m[错误] ${msg.message}\x1b[0m\r\n`);
+              setWsConnected(false);
+              updateTabStatus(tab.id, 'ERROR');
+              break;
+          }
+        } catch {
+          xtermRef.current?.write(e.data);
+        }
+      };
+
+      ws.onclose = (event) => {
+        if (cancelled) return;
+        setWsConnected(false);
+
+        // 服务端主动断开（1000 正常退出 / 1001 会话销毁 / 4000 attach 失败）→ 不重连
+        const intentional = event.code === 1000 || event.code === 1001 || event.code === 4000;
+        if (intentional || manualClose) {
+          updateTabStatus(tab.id, 'DISCONNECTED');
+          return;
+        }
+
+        // 网络问题 / 反代超时 → 指数退避重连
+        if (attemptCount < MAX_RECONNECT) {
+          attemptCount++;
+          const delay = BACKOFF_BASE_MS * Math.pow(2, attemptCount - 1);
+          updateTabStatus(tab.id, 'RECONNECTING');
+          reconnectTimer = setTimeout(connect, delay);
+        } else {
+          updateTabStatus(tab.id, 'DISCONNECTED');
+        }
+      };
+
+      ws.onerror = () => {
+        if (cancelled) return;
+        updateTabStatus(tab.id, 'ERROR');
+      };
     };
 
-    ws.onerror = () => {
-      if (cancelled) return;
-      setWsConnected(false);
-      updateTabStatus(tab.id, 'ERROR');
-    };
+    connect();
 
     return () => {
       cancelled = true;
-      ws?.close();
+      manualClose = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { ws?.close(); } catch (_) {}
     };
   }, [tab.id, tab.sessionId, updateTabStatus]);
 
   const send = useCallback((data: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(data);
+      try { wsRef.current.send(data); } catch (_) {}
+    } else {
+      // WS 未就绪（重连中），缓冲到重连后重放
+      inputBufferRef.current.push(data);
     }
   }, []);
 
