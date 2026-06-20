@@ -499,11 +499,19 @@ function TerminalInstance({ tab, isMobile, isActive, visible }: { tab: { id: str
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden">
+      <div
+        className="flex-1 overflow-hidden"
+        onWheel={(e) => {
+          // 阻止 wheel 事件冒泡到外层，防止终端滚到顶/底时整页被滚动
+          e.stopPropagation();
+        }}
+      >
         <div
           ref={containerRef}
-          className="w-full h-full"
-          style={{ touchAction: 'pan-x pan-y' }}
+          className="w-full h-full terminal-host"
+          style={{
+            touchAction: 'pan-x pan-y',
+          }}
         />
       </div>
 
