@@ -8,7 +8,7 @@ import { useTerminalStore, useTerminalSettings } from '@/stores/terminal';
 import { useAppStore } from '@/stores/app';
 import {
   Plus, X, Maximize2, Minimize2, Search,
-  Wifi, WifiOff, Trash2, Copy,
+  Wifi, WifiOff, Trash2, Copy, Pencil,
   Terminal as TerminalIcon
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
@@ -18,7 +18,7 @@ const getToken = () => localStorage.getItem('flux_token') || '';
 const API_POLL_MS = 30000; // 兜底轮询：实时同步靠 WS 广播，这里拉长到 30s 降噪
 
 export default function TerminalPage({ visible }: { visible?: boolean }) {
-  const { tabs, activeTabId, setTabs, setActiveTab } = useTerminalStore();
+  const { tabs, activeTabId, setTabs, setActiveTab, setCustomTitle } = useTerminalStore();
   const isMobile = useAppStore((s) => s.isMobile);
   const [fullscreen, setFullscreen] = useState(false);
   const bootRef = useRef(false);
@@ -93,6 +93,7 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
             isActive={tab.id === activeTabId}
             onClick={() => setActiveTab(tab.id)}
             onClose={() => handleRemoveTab(tab.id)}
+            onRename={(newTitle) => setCustomTitle(tab.sessionId, newTitle)}
           />
         ))}
         <button
@@ -137,8 +138,12 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
   );
 }
 
-function TabButton({ tab, isActive, onClick, onClose }: {
-  tab: { id: string; title: string; status: string }; isActive: boolean; onClick: () => void; onClose: () => void;
+function TabButton({ tab, isActive, onClick, onClose, onRename }: {
+  tab: { id: string; title: string; sessionId: string; status: string };
+  isActive: boolean;
+  onClick: () => void;
+  onClose: () => void;
+  onRename?: (newTitle: string) => void;
 }) {
   const statusColors: Record<string, string> = {
     CONNECTED: 'text-emerald-400',
@@ -147,11 +152,58 @@ function TabButton({ tab, isActive, onClick, onClose }: {
     RECONNECTING: 'text-sky-400',
     ERROR: 'text-red-400',
   };
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(tab.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  // 同步外部 title 变化到 draft（非编辑态）
+  useEffect(() => {
+    if (!editing) setDraft(tab.title);
+  }, [tab.title, editing]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next && next !== tab.title) onRename?.(next);
+    else setDraft(tab.title);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div
+        className={`group flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-md text-xs font-medium shrink-0 max-w-48
+          border bg-zinc-900 border-emerald-600/50`}
+      >
+        <div className={`w-2 h-2 rounded-full shrink-0 ${statusColors[tab.status] || 'text-zinc-500'}`} />
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            else if (e.key === 'Escape') { setDraft(tab.title); setEditing(false); }
+          }}
+          className="bg-transparent outline-none text-white text-xs min-w-0 flex-1"
+          maxLength={32}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
       onClick={onClick}
-      title={tab.title}
+      onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
+      title={`${tab.title}（双击重命名）`}
       className={`group flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer shrink-0 max-w-24 md:max-w-40
         transition-colors border
         ${isActive
@@ -170,6 +222,17 @@ function TabButton({ tab, isActive, onClick, onClose }: {
       >
         <X className="w-3 h-3" />
       </button>
+      {onRename && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+          className={`p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-white transition-opacity
+            ${isActive ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-100'}
+          `}
+          title="重命名"
+        >
+          <Pencil className="w-2.5 h-2.5" />
+        </button>
+      )}
     </div>
   );
 }
@@ -180,6 +243,7 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const updateTabStatus = useTerminalStore((s) => s.updateTabStatus);
+  const addNotification = useAppStore((s) => s.addNotification);
   const { fontSize, fontFamily, cursorBlink, scrollback } = useTerminalSettings();
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -245,6 +309,14 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
               break;
             case 'notice':
               xtermRef.current?.write(msg.data);
+              break;
+            case 'toast':
+              // 服务端主动通知（如多端连接提示），用 toast 显示而不是污染终端
+              addNotification({
+                type: msg.level === 'warning' ? 'warning' : msg.level === 'error' ? 'error' : 'info',
+                message: msg.message,
+                duration: msg.duration || 4000,
+              });
               break;
             case 'exit':
               xtermRef.current?.write(`\r\n\x1b[31m[进程退出] exitCode=${msg.exitCode}${msg.signal ? ` signal=${msg.signal}` : ''}\x1b[0m\r\n`);
