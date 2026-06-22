@@ -56,7 +56,15 @@ export const useAppStore = create<AppStore>()(
         }),
 
       addNotification: (n) => {
-        const id = `notif-${Date.now()}-${++notifCounter}`;
+        // 去重：5 秒内相同 message 只保留一个（防止多 tab 同时触发 toast 累积）
+        const now = Date.now();
+        const DEDUP_WINDOW = 5000;
+        const existing = get().notifications.find(x =>
+          x.message === n.message && now - parseInt(x.id.split('-')[1] || '0', 10) < DEDUP_WINDOW
+        );
+        if (existing) return;
+
+        const id = `notif-${now}-${++notifCounter}`;
         const notification: Notification = { ...n, id };
         set((s) => ({ notifications: [...s.notifications, notification] }));
         if (n.duration !== 0) {
