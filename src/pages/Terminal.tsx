@@ -151,7 +151,7 @@ function TabButton({ tab, isActive, onClick, onClose }: {
   return (
     <div
       onClick={onClick}
-      className={`group flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer min-w-0 max-w-40
+      className={`group flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer shrink-0 max-w-24 md:max-w-40
         transition-colors border
         ${isActive
           ? 'bg-zinc-800 border-zinc-700 text-white'
@@ -159,11 +159,13 @@ function TabButton({ tab, isActive, onClick, onClose }: {
         }
       `}
     >
-      <div className={`w-2 h-2 rounded-full ${statusColors[tab.status] || 'text-zinc-500'}`} />
-      <span className="truncate">{tab.title}</span>
+      <div className={`w-2 h-2 rounded-full shrink-0 ${statusColors[tab.status] || 'text-zinc-500'}`} />
+      <span className="truncate min-w-0">{tab.title}</span>
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        className="ml-1 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+        className={`ml-0.5 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-white transition-opacity
+          ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+        `}
       >
         <X className="w-3 h-3" />
       </button>
