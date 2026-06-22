@@ -438,6 +438,22 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
       textarea.setAttribute('autocorrect', 'off');
       textarea.setAttribute('autocapitalize', 'off');
       textarea.setAttribute('spellcheck', 'false');
+
+      // 仅移动端：部分 Android 输入法吞掉空格/标点的 keydown，
+      // 监听 beforeinput 把原始文本送到 pty；桌面端走 xterm 自带 keydown 路径
+      if (isMobile) {
+        const handleBeforeInput = (e: InputEvent) => {
+          const data = e.data;
+          if (data && data.length > 0 && e.inputType !== 'insertCompositionText') {
+            send(JSON.stringify({ type: 'input', data }));
+            e.preventDefault();
+          }
+        };
+        textarea.addEventListener('beforeinput', handleBeforeInput as EventListener);
+        (containerRef.current as any).__cleanupBeforeInput = () => {
+          textarea.removeEventListener('beforeinput', handleBeforeInput as EventListener);
+        };
+      }
     }
 
     const sendResize = () => {
@@ -469,13 +485,21 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
     };
     window.addEventListener('resize', doFit);
 
+    // 移动端软键盘弹出/收起时，visualViewport 会触发 resize，比 window resize 更精确
+    const onVpResize = () => doFit();
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', onVpResize);
+    }
+
     const observer = new ResizeObserver(doFit);
     observer.observe(containerRef.current);
 
     return () => {
       window.removeEventListener('resize', doFit);
+      if (window.visualViewport) window.visualViewport.removeEventListener('resize', onVpResize);
       observer.disconnect();
       term.dispose();
+      (containerRef.current as any)?.__cleanupBeforeInput?.();
     };
   }, [tab.id]);
 
