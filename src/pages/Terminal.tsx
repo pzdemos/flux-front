@@ -15,7 +15,7 @@ import { apiClient } from '@/api/client';
 
 const WS_BASE = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/flux/ws/tmux`;
 const getToken = () => localStorage.getItem('flux_token') || '';
-const API_POLL_MS = 3000;
+const API_POLL_MS = 30000; // 兜底轮询：实时同步靠 WS 广播，这里拉长到 30s 降噪
 
 export default function TerminalPage({ visible }: { visible?: boolean }) {
   const { tabs, activeTabId, setTabs, setActiveTab } = useTerminalStore();
@@ -41,6 +41,15 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
     loadSessions();
     const timer = setInterval(loadSessions, API_POLL_MS);
     return () => clearInterval(timer);
+  }, [loadSessions]);
+
+  // 多端实时同步：WS 广播触发后 debounce 重新拉取（500ms 内多次只执行一次）
+  const sessionChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSessionChange = useCallback(() => {
+    if (sessionChangeTimerRef.current) clearTimeout(sessionChangeTimerRef.current);
+    sessionChangeTimerRef.current = setTimeout(() => {
+      loadSessions();
+    }, 500);
   }, [loadSessions]);
 
   // tabs 为空时自动创建 main 会话（仅首次）
@@ -119,7 +128,7 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
               key={tab.id}
               className={`absolute inset-0 ${tab.id === activeTabId ? 'block' : 'hidden'}`}
             >
-              <TerminalInstance tab={tab} isMobile={isMobile} isActive={tab.id === activeTabId} visible={!!visible} />
+              <TerminalInstance tab={tab} isMobile={isMobile} isActive={tab.id === activeTabId} visible={!!visible} onSessionChange={handleSessionChange} />
             </div>
           ))
         )}
@@ -162,7 +171,7 @@ function TabButton({ tab, isActive, onClick, onClose }: {
   );
 }
 
-function TerminalInstance({ tab, isMobile, isActive, visible }: { tab: { id: string; sessionId: string }; isMobile: boolean; isActive: boolean; visible?: boolean }) {
+function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }: { tab: { id: string; sessionId: string }; isMobile: boolean; isActive: boolean; visible?: boolean; onSessionChange?: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -243,6 +252,12 @@ function TerminalInstance({ tab, isMobile, isActive, visible }: { tab: { id: str
               xtermRef.current?.write(`\r\n\x1b[31m[错误] ${msg.message}\x1b[0m\r\n`);
               setWsConnected(false);
               updateTabStatus(tab.id, 'ERROR');
+              break;
+            // 多端实时同步：后端广播的会话级消息
+            case 'session_created':
+            case 'session_deleted':
+            case 'sessions':
+              onSessionChange?.();
               break;
           }
         } catch {
