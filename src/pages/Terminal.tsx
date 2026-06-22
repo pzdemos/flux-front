@@ -151,6 +151,7 @@ function TabButton({ tab, isActive, onClick, onClose }: {
   return (
     <div
       onClick={onClick}
+      title={tab.title}
       className={`group flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer shrink-0 max-w-24 md:max-w-40
         transition-colors border
         ${isActive
