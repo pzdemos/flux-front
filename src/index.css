@@ -90,7 +90,8 @@
   .xterm-viewport {
     background-color: #09090b !important;
     /* 阻止 xterm 滚动到边界后链式触发外层滚动 */
-    overscroll-behavior: contain;
+    overscroll-behavior: contain !important;
+    overscroll-behavior-y: contain !important;
   }
 
   .terminal-host .xterm {
