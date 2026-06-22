@@ -89,14 +89,17 @@
 @layer components {
   .xterm-viewport {
     background-color: #09090b !important;
-    /* 阻止 xterm 滚动到边界后链式触发外层滚动 */
-    overscroll-behavior: contain !important;
-    overscroll-behavior-y: contain !important;
   }
 
   .terminal-host .xterm {
     height: 100%;
   }
+}
+
+/* xterm 滚动泄漏修复：不加 @layer 避免 Tailwind purge，强制覆盖 xterm 自带样式 */
+.xterm-viewport {
+  overscroll-behavior: contain !important;
+  overscroll-behavior-y: contain !important;
 }
 
 @layer utilities {
