@@ -10,6 +10,7 @@ interface ServerData {
   cpu: {
     model: string;
     cores: number;
+    usagePercent: number | null;
     loadAverage: { '1min': string; '5min': string; '15min': string };
   };
   memory: {
@@ -87,6 +88,7 @@ export default function ServerStatus() {
   if (!data) return null;
 
   const mem = data.memory;
+  const cpuUsage = data.cpu.usagePercent;
   const cpuLoad = parseFloat(data.cpu.loadAverage['1min']);
   const disk = data.disk[0];
 
@@ -106,7 +108,9 @@ export default function ServerStatus() {
           <span className={`font-mono font-medium tabular-nums ${usageTextColor(mem.usagePercent)}`}>{mem.usagePercent}%</span>
         </div>
         <span className="text-zinc-600">·</span>
-        <span className="text-zinc-500 font-mono tabular-nums">{cpuLoad.toFixed(1)}</span>
+        <span className={`font-mono font-medium tabular-nums ${cpuUsage !== null ? usageTextColor(cpuUsage) : 'text-zinc-500'}`}>
+          {cpuUsage !== null ? `${cpuUsage.toFixed(1)}%` : 'CPU?'}
+        </span>
       </button>
 
       {open && (
@@ -151,15 +155,24 @@ export default function ServerStatus() {
                   <Cpu className="w-3 h-3 text-zinc-500" />
                   <span className="text-[11px] text-zinc-400">CPU</span>
                 </div>
-                <span className="text-[11px] text-zinc-500 font-mono tabular-nums">{data.cpu.cores}核 · 负载 {cpuLoad.toFixed(2)}</span>
+                <span className={`text-[11px] font-mono font-medium tabular-nums ${cpuUsage !== null ? usageTextColor(cpuUsage) : 'text-zinc-500'}`}>
+                  {cpuUsage !== null ? `${cpuUsage}%` : 'N/A'}
+                </span>
               </div>
-              <div className="flex gap-1">
+              <div className="h-1 rounded-full bg-zinc-800 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${usageColor(cpuUsage ?? 0)}`} style={{ width: `${Math.min(cpuUsage ?? 0, 100)}%` }} />
+              </div>
+              <div className="flex justify-between mt-1 text-[10px] text-zinc-600 font-mono">
+                <span>{data.cpu.cores}核</span>
+                <span>负载 {cpuLoad.toFixed(2)} / {data.cpu.loadAverage['15min']}</span>
+              </div>
+              <div className="flex gap-1 mt-1.5">
                 {[1, 5, 15].map((m) => {
                   const load = parseFloat(data.cpu.loadAverage[`${m}min` as keyof typeof data.cpu.loadAverage]);
                   const pct = Math.min(load / data.cpu.cores * 100, 100);
                   return (
                     <div key={m} className="flex-1">
-                      <div className="h-1 rounded-full bg-zinc-800 overflow-hidden">
+                      <div className="h-0.5 rounded-full bg-zinc-800 overflow-hidden">
                         <div className={`h-full rounded-full ${usageColor(pct)}`} style={{ width: `${pct}%` }} />
                       </div>
                       <div className="text-[9px] text-zinc-600 text-center mt-0.5 font-mono">{m}min</div>
