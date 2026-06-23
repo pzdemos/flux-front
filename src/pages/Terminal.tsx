@@ -52,15 +52,21 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
     }, 500);
   }, [loadSessions]);
 
-  // tabs 为空时自动创建 main 会话（仅首次）
+  // 首次挂载：拉取后端 session 列表；若用户没有任何 session（首次使用）才创建 main
+  // 之前 tabs=[] 就 POST 创建 main，导致每次新窗口都发一次创建请求（即使 main 已存在）
   useEffect(() => {
-    if (tabs.length === 0 && !bootRef.current) {
-      bootRef.current = true;
-      apiClient.post('/tmux/sessions', { name: 'main', workdir: '/' }).then(() => {
-        loadSessions();
-      }).catch(() => loadSessions());
-    }
-  }, [tabs.length, loadSessions]);
+    if (bootRef.current) return;
+    bootRef.current = true;
+    apiClient.get('/tmux/sessions').then(async (res) => {
+      const sessions = res.data?.sessions || [];
+      if (sessions.length === 0) {
+        try {
+          await apiClient.post('/tmux/sessions', { name: 'main', workdir: '/' });
+        } catch { /* 并发创建被拒，忽略 */ }
+      }
+      loadSessions();
+    }).catch(() => loadSessions());
+  }, [loadSessions]);
 
   // 兜底：定期拉 status 同步 wsCount（WS 广播丢失时也能恢复）
   useEffect(() => {
