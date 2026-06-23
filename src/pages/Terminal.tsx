@@ -18,7 +18,7 @@ const getToken = () => localStorage.getItem('flux_token') || '';
 const API_POLL_MS = 30000; // 兜底轮询：实时同步靠 WS 广播，这里拉长到 30s 降噪
 
 export default function TerminalPage({ visible }: { visible?: boolean }) {
-  const { tabs, activeTabId, setTabs, setActiveTab, setCustomTitle } = useTerminalStore();
+  const { tabs, activeTabId, setTabs, setActiveTab, setCustomTitle, setWsCounts } = useTerminalStore();
   const isMobile = useAppStore((s) => s.isMobile);
   const [fullscreen, setFullscreen] = useState(false);
   const bootRef = useRef(false);
@@ -61,6 +61,23 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
       }).catch(() => loadSessions());
     }
   }, [tabs.length, loadSessions]);
+
+  // 兜底：定期拉 status 同步 wsCount（WS 广播丢失时也能恢复）
+  useEffect(() => {
+    const fetchCounts = async () => {
+      try {
+        const res = await apiClient.get('/tmux/status');
+        const counts: Record<string, number> = {};
+        for (const s of res.data?.sessions || []) {
+          counts[s.name] = s.wsConnections || 0;
+        }
+        setWsCounts(counts);
+      } catch { /* ignore */ }
+    };
+    fetchCounts();
+    const id = setInterval(fetchCounts, API_POLL_MS);
+    return () => clearInterval(id);
+  }, [setWsCounts]);
 
   const handleAddTab = useCallback(() => {
     const name = `term-${Date.now()}`;
@@ -139,7 +156,7 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
 }
 
 function TabButton({ tab, isActive, onClick, onClose, onRename }: {
-  tab: { id: string; title: string; sessionId: string; status: string };
+  tab: { id: string; title: string; sessionId: string; status: string; wsCount: number };
   isActive: boolean;
   onClick: () => void;
   onClose: () => void;
@@ -214,6 +231,14 @@ function TabButton({ tab, isActive, onClick, onClose, onRename }: {
     >
       <div className={`w-2 h-2 rounded-full shrink-0 ${statusColors[tab.status] || 'text-zinc-500'}`} />
       <span className="truncate min-w-0">{tab.title}</span>
+      {tab.wsCount > 1 && (
+        <span
+          title={`${tab.wsCount} 个端连接到此会话`}
+          className="shrink-0 px-1 py-0.5 text-[9px] font-mono leading-none rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30"
+        >
+          ×{tab.wsCount}
+        </span>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
         className={`ml-0.5 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-white transition-opacity
@@ -261,6 +286,7 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
 
     const MAX_RECONNECT = 5;
     const BACKOFF_BASE_MS = 1000;
+
 
     const flushPending = () => {
       while (inputBufferRef.current.length > 0) {
@@ -333,6 +359,10 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
             case 'session_deleted':
             case 'sessions':
               onSessionChange?.();
+              break;
+            case 'ws_counts':
+              // 多端 tab 角标：实时更新各 session 的连接数
+              useTerminalStore.getState().setWsCounts(msg.counts || {});
               break;
           }
         } catch {

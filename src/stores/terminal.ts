@@ -7,6 +7,8 @@ interface TerminalTabInfo {
   sessionId: string;
   status: 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'RECONNECTING' | 'ERROR';
   createdAt: number;
+  // 该 session 当前 attach 的 WS 客户端数（多端协同角标）
+  wsCount: number;
 }
 
 interface TerminalStore {
@@ -22,6 +24,8 @@ interface TerminalStore {
   updateTabStatus: (id: string, status: TerminalTabInfo['status']) => void;
   setCustomTitle: (sessionId: string, title: string) => void;
   clearCustomTitle: (sessionId: string) => void;
+  // 批量更新各 session 的实时 wsCount（多端角标）
+  setWsCounts: (counts: Record<string, number>) => void;
   clearTabs: () => void;
 }
 
@@ -48,6 +52,7 @@ export const useTerminalStore = create<TerminalStore>()(
             sessionId: s.name,
             status: 'DISCONNECTED' as const,
             createdAt: Date.now(),
+            wsCount: 0,
           };
         });
         const activeTabId = get().activeTabId;
@@ -66,6 +71,7 @@ export const useTerminalStore = create<TerminalStore>()(
           sessionId: sessionName,
           status: 'DISCONNECTED',
           createdAt: Date.now(),
+          wsCount: 0,
         };
         set(state => ({ tabs: [...state.tabs, newTab], activeTabId: id }));
       },
@@ -88,6 +94,14 @@ export const useTerminalStore = create<TerminalStore>()(
       updateTabStatus: (id, status) =>
         set(state => ({
           tabs: state.tabs.map(t => t.id === id ? { ...t, status } : t),
+        })),
+
+      setWsCounts: (counts) =>
+        set(state => ({
+          tabs: state.tabs.map(t => ({
+            ...t,
+            wsCount: counts[t.sessionId] ?? 0,
+          })),
         })),
 
       // 自定义标题：按 sessionId 持久化，多端拉取 session 列表后仍能恢复
