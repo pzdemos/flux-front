@@ -213,6 +213,10 @@ export const gitApi = {
     apiClient.get('/files/git/status', { params: { path } }),
   log: (path: string, page = 1, limit = 20) =>
     apiClient.get('/files/git/log', { params: { path, page, limit } }),
+  diff: (path: string, hash: string) =>
+    apiClient.get('/files/git/diff', { params: { path, hash } }),
+  file: (path: string, hash: string, file: string) =>
+    apiClient.get('/files/git/file', { params: { path, hash, file } }),
 };
 
 // ===== System Tools API =====

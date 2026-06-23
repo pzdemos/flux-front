@@ -9,6 +9,7 @@ import TrashView from '@/components/file-manager/TrashView';
 import ToolsView from '@/components/file-manager/ToolsView';
 import SelectionBar from '@/components/file-manager/SelectionBar';
 import ActionSheet from '@/components/file-manager/ActionSheet';
+import GitDiffView from '@/components/file-manager/GitDiffView';
 import {
   Folder, File as FileIcon, ChevronRight, ChevronUp, ChevronDown, Home,
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
@@ -123,6 +124,10 @@ export default function FilesPage() {
   const [gitTotal, setGitTotal] = useState(0);
   const [gitHasMore, setGitHasMore] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
+  // 展开的 commit hash → diff 内容（缓存避免重复请求）
+  const [expandedCommit, setExpandedCommit] = useState<string | null>(null);
+  const [commitDiffs, setCommitDiffs] = useState<Record<string, string>>({});
+  const [diffLoading, setDiffLoading] = useState(false);
   const gitScrollRef = useRef<HTMLDivElement>(null);
 
   // Drag & drop
@@ -392,6 +397,26 @@ export default function FilesPage() {
       setGitLoading(false);
     }
   }, [gitDir, gitLoading, gitHasMore, gitPage, addNotification]);
+
+  // 展开/折叠 commit diff（已缓存的不再请求）
+  const toggleCommitDiff = useCallback(async (hash: string) => {
+    if (expandedCommit === hash) {
+      setExpandedCommit(null);
+      return;
+    }
+    setExpandedCommit(hash);
+    if (commitDiffs[hash] || !gitDir) return;
+    setDiffLoading(true);
+    try {
+      const res = await gitApi.diff(gitDir.path, hash);
+      setCommitDiffs(prev => ({ ...prev, [hash]: (res.data as any).patch || '' }));
+    } catch {
+      addNotification({ type: 'error', message: '获取 diff 失败' });
+      setExpandedCommit(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [expandedCommit, commitDiffs, gitDir, addNotification]);
 
   const handleDelete = async (names: string[]) => {
     const confirmed = window.confirm(`确定要删除以下 ${names.length} 个项目？\n${names.join('\n')}\n\n删除后将无法恢复！`);
@@ -1353,8 +1378,8 @@ export default function FilesPage() {
 
       {/* ===== Git Commit Log Dialog ===== */}
       {gitDir && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setGitDir(null)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setGitDir(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-4xl shadow-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                 <GitBranch className="w-5 h-5 text-emerald-400" />
@@ -1367,11 +1392,11 @@ export default function FilesPage() {
 
             <p className="text-sm text-slate-400 mb-4 truncate">{gitDir.path}</p>
 
-            <div className="text-xs text-slate-500 mb-3">共 {gitTotal} 次提交</div>
+            <div className="text-xs text-slate-500 mb-3">共 {gitTotal} 次提交 · 点击展开查看改动</div>
 
             <div
               ref={gitScrollRef}
-              className="flex-1 overflow-auto space-y-1 min-h-0"
+              className="flex-1 overflow-auto space-y-1.5 min-h-0"
               onScroll={(e) => {
                 const el = e.currentTarget;
                 if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
@@ -1384,21 +1409,41 @@ export default function FilesPage() {
                   <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
                 </div>
               ) : (
-                gitCommits.map((commit) => (
-                  <div key={commit.hash} className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-zinc-200 font-medium truncate">{commit.message}</p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          <span className="font-mono text-emerald-400/70">{commit.hash.slice(0, 7)}</span>
-                          <span className="mx-1.5">&middot;</span>
-                          {commit.author}
-                        </p>
-                      </div>
-                      <span className="text-xs text-slate-500 shrink-0">{formatDate(commit.date)}</span>
+                gitCommits.map((commit) => {
+                  const isOpen = expandedCommit === commit.hash;
+                  return (
+                    <div key={commit.hash} className="rounded-lg bg-slate-800/50 border border-slate-700/50 overflow-hidden">
+                      <button
+                        onClick={() => toggleCommitDiff(commit.hash)}
+                        className="w-full p-3 flex items-start justify-between gap-3 hover:bg-slate-800 transition-colors text-left"
+                      >
+                        <div className="flex items-start gap-2 flex-1 min-w-0">
+                          <ChevronRight className={`w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-zinc-200 font-medium truncate">{commit.message}</p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              <span className="font-mono text-emerald-400/70">{commit.hash.slice(0, 7)}</span>
+                              <span className="mx-1.5">&middot;</span>
+                              {commit.author}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-xs text-slate-500 shrink-0">{formatDate(commit.date)}</span>
+                      </button>
+                      {isOpen && (
+                        <div className="px-3 pb-3 pt-1 border-t border-slate-700/50 bg-zinc-950/30">
+                          {diffLoading && !commitDiffs[commit.hash] ? (
+                            <div className="flex items-center justify-center py-6">
+                              <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                            </div>
+                          ) : (
+                            <GitDiffView patch={commitDiffs[commit.hash] || ''} repoPath={gitDir?.path || ''} hash={commit.hash} />
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
               {gitHasMore && (
                 <div className="flex items-center justify-center py-3">
