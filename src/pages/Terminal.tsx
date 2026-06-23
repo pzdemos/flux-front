@@ -8,7 +8,7 @@ import { useTerminalStore, useTerminalSettings } from '@/stores/terminal';
 import { useAppStore } from '@/stores/app';
 import {
   Plus, X, Maximize2, Minimize2, Search,
-  Wifi, WifiOff, Trash2, Copy, Pencil,
+  Wifi, WifiOff, Trash2, Copy, Pencil, Bot,
   Terminal as TerminalIcon
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
@@ -564,6 +564,10 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
     xtermRef.current?.clear();
   };
 
+  const handleLaunchClaude = () => {
+    send(JSON.stringify({ type: 'input', data: 'IS_SANDBOX=1 claude --dangerously-skip-permissions\r' }));
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800 bg-zinc-900/50 shrink-0">
@@ -575,6 +579,9 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
         </button>
         <button onClick={handleClear} className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
           <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={handleLaunchClaude} title="启动 Claude" className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400 transition-colors">
+          <Bot className="w-3.5 h-3.5" />
         </button>
         <div className="flex-1" />
         <div className="flex items-center gap-1.5 text-xs text-zinc-500">
