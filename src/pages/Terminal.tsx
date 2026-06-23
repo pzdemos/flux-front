@@ -237,14 +237,6 @@ function TabButton({ tab, isActive, onClick, onClose, onRename }: {
     >
       <div className={`w-2 h-2 rounded-full shrink-0 ${statusColors[tab.status] || 'text-zinc-500'}`} />
       <span className="truncate min-w-0">{tab.title}</span>
-      {tab.wsCount > 1 && (
-        <span
-          title={`${tab.wsCount} 个端连接到此会话`}
-          className="shrink-0 px-1 py-0.5 text-[9px] font-mono leading-none rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30"
-        >
-          ×{tab.wsCount}
-        </span>
-      )}
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
         className={`ml-0.5 p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-white transition-opacity
@@ -268,7 +260,7 @@ function TabButton({ tab, isActive, onClick, onClose, onRename }: {
   );
 }
 
-function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }: { tab: { id: string; sessionId: string }; isMobile: boolean; isActive: boolean; visible?: boolean; onSessionChange?: () => void }) {
+function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }: { tab: { id: string; sessionId: string; wsCount: number }; isMobile: boolean; isActive: boolean; visible?: boolean; onSessionChange?: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -623,6 +615,14 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
         <div className="flex items-center gap-1.5 text-xs text-zinc-500">
           {wsConnected ? (
             <>
+              {tab.wsCount > 1 && (
+                <span
+                  title={`${tab.wsCount} 个端连接到此会话`}
+                  className="px-1.5 py-0.5 text-[10px] font-mono leading-none rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                >
+                  ×{tab.wsCount}
+                </span>
+              )}
               <Wifi className="w-3 h-3 text-emerald-400" />
               <span className="font-mono">OPEN</span>
             </>
