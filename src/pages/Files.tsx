@@ -163,14 +163,17 @@ export default function FilesPage() {
 
   useEffect(() => {
     if (viewMode === 'node' || viewMode === 'skill') {
-      systemApi.setRoot('/').then(() => setCurrentRoot('/')).catch(() => {});
+      // Save original root before overwriting for node/skill mode
+      systemApi.getRoot().then(res => {
+        savedRoot.current = res.data?.root || null;
+        return systemApi.setRoot('/');
+      }).then(() => setCurrentRoot('/')).catch(() => {});
     } else {
       systemApi.getRoot().then((res) => {
         const { root, configured } = res.data;
         if (configured && root) {
           setCurrentRoot(root);
         } else {
-          // FILE_MANAGER_ROOT 未配置，提示用户设置
           setCurrentRoot(null);
         }
       }).catch(() => setCurrentRoot(null));
@@ -192,7 +195,6 @@ export default function FilesPage() {
       const items = normalizeItems(res.data.items, res.data.path || p);
       setFiles(items);
       setPath(res.data.path || p);
-      if (res.data.root) setCurrentRoot(res.data.root);
       setSelected(new Set());
       setDirNotFound(false);
     } catch (err: unknown) {
