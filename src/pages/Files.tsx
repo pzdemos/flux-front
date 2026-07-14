@@ -225,6 +225,7 @@ export default function FilesPage() {
 
   // Switch root and path when entering/leaving node/skill views
   const prevViewMode = useRef(viewMode);
+  const savedRoot = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevViewMode.current;
     const curr = viewMode;
@@ -234,10 +235,13 @@ export default function FilesPage() {
     const neededRootSlash = prev === 'node' || prev === 'skill';
 
     if (needsRootSlash && !neededRootSlash) {
-      systemApi.setRoot('/').then(() => {
+      // Entering node/skill: save current root, then switch to /
+      systemApi.getRoot().then(res => {
+        savedRoot.current = res.data?.root || null;
+        return systemApi.setRoot('/');
+      }).then(() => {
         setCurrentRoot('/');
         if (curr === 'node') {
-          // Use FILE_MANAGER_ROOT as the default path for node mode
           systemApi.getRoot().then(res => {
             const defaultPath = res.data?.root || '/root';
             setPath(defaultPath); loadFiles(defaultPath);
@@ -245,8 +249,10 @@ export default function FilesPage() {
         } else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
       }).catch(() => {});
     } else if (!needsRootSlash && neededRootSlash) {
-      systemApi.setRoot('/var/www/wwwroot').then(() => {
-        setCurrentRoot('/var/www/wwwroot');
+      // Leaving node/skill: restore saved root
+      const restoreRoot = savedRoot.current || '/var/server';
+      systemApi.setRoot(restoreRoot).then(() => {
+        setCurrentRoot(restoreRoot);
         setPath('/');
         loadFiles('/');
       }).catch(() => {});
