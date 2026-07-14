@@ -56,6 +56,7 @@ export default function FilesPage() {
   const [sortBy, setSortBy] = useState<'name' | 'size' | 'date'>('name');
   const [editingFile, setEditingFile] = useState<FileItem | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [dirNotFound, setDirNotFound] = useState(false);
 
   // Editable address bar
   const [editingPath, setEditingPath] = useState(false);
@@ -193,17 +194,25 @@ export default function FilesPage() {
       setPath(res.data.path || p);
       if (res.data.root) setCurrentRoot(res.data.root);
       setSelected(new Set());
+      setDirNotFound(false);
     } catch (err: unknown) {
       console.error('[Files] loadFiles error:', err);
-      const axiosErr = err as AxiosError<{ error?: string; message?: string; configured?: boolean }>;
+      const axiosErr = err as AxiosError<{ error?: string; message?: string; configured?: boolean; code?: string; path?: string }>;
       if (axiosErr.response?.status === 400 && axiosErr.response?.data?.configured === false) {
         setLoadError('FILE_MANAGER_ROOT 未配置，请在 .env 文件中设置或通过界面设置根路径');
+        setDirNotFound(false);
+      } else if (axiosErr.response?.status === 404 && axiosErr.response?.data?.code === 'DIR_NOT_FOUND') {
+        setLoadError(`目录不存在: ${axiosErr.response?.data?.path || p}`);
+        setDirNotFound(true);
       } else if (axiosErr.response?.status === 404) {
         setLoadError('路径不存在');
+        setDirNotFound(false);
       } else if (axiosErr.message === 'Network Error') {
         setLoadError('API 连接失败，请检查网络');
+        setDirNotFound(false);
       } else {
         setLoadError(axiosErr.response?.data?.error || axiosErr.response?.data?.message || '请求失败');
+        setDirNotFound(false);
       }
       setFiles([]);
       setPath(p);
@@ -955,6 +964,28 @@ export default function FilesPage() {
               <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
                 <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span className="text-xs text-amber-400">{loadError}</span>
+                {dirNotFound && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        // Create the directory by splitting path and creating last part
+                        const parts = path.split('/').filter(Boolean);
+                        const dirName = parts.pop() || '';
+                        const parentPath = parts.length > 0 ? `/${parts.join('/')}` : '/';
+                        await fileApi.mkdir(parentPath, dirName);
+                        addNotification({ type: 'success', message: `已创建目录: ${path}` });
+                        setDirNotFound(false);
+                        setLoadError(null);
+                        loadFiles(path);
+                      } catch (e) {
+                        addNotification({ type: 'error', message: `创建目录失败: ${(e as Error).message}` });
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs hover:bg-emerald-500"
+                  >
+                    一键创建
+                  </button>
+                )}
               </div>
             )}
 
