@@ -10,10 +10,13 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': {
-        target: 'https://www.haoaiganfan.top',
+      '/flux/api': {
+        target: 'http://localhost:9000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '/flux/api'),
+      },
+      '/flux/ws': {
+        target: 'ws://localhost:9000',
+        ws: true,
       },
     },
   },

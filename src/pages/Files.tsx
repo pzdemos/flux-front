@@ -16,7 +16,7 @@ import {
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
   FileArchive, Wrench, X, Check, Square, ClipboardCheck, Server, BookOpen,
-  GitBranch
+  GitBranch, AlertTriangle
 } from 'lucide-react';
 import type { FileItem, RawFileItem, GitCommit } from '@/types';
 
@@ -49,7 +49,7 @@ function formatDate(isoDate: string): string {
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [path, setPath] = useState('/');
-  const [currentRoot, setCurrentRoot] = useState('');
+  const [currentRoot, setCurrentRoot] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -165,17 +165,25 @@ export default function FilesPage() {
       systemApi.setRoot('/').then(() => setCurrentRoot('/')).catch(() => {});
     } else {
       systemApi.getRoot().then((res) => {
-        const root = res.data.root || res.data || '/var/www/wwwroot';
-        if (root !== '/var/www/wwwroot') {
-          systemApi.setRoot('/var/www/wwwroot').then(() => setCurrentRoot('/var/www/wwwroot')).catch(() => setCurrentRoot(root));
-        } else {
+        const { root, configured } = res.data;
+        if (configured && root) {
           setCurrentRoot(root);
+        } else {
+          // FILE_MANAGER_ROOT 未配置，提示用户设置
+          setCurrentRoot(null);
         }
-      }).catch(() => setCurrentRoot('/var/www/wwwroot'));
+      }).catch(() => setCurrentRoot(null));
     }
   }, []);
 
   const loadFiles = useCallback(async (p: string) => {
+    if (!currentRoot && viewMode !== 'node' && viewMode !== 'skill') {
+      // 根路径未配置，不加载文件列表
+      setFiles([]);
+      setPath('/');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setLoadError(null);
     try {
@@ -188,7 +196,9 @@ export default function FilesPage() {
     } catch (err: unknown) {
       console.error('[Files] loadFiles error:', err);
       const axiosErr = err as AxiosError<{ error?: string; message?: string }>;
-      if (axiosErr.response?.status === 404) {
+      if (axiosErr.response?.status === 400 && axiosErr.response?.data?.configured === false) {
+        setLoadError('FILE_MANAGER_ROOT 未配置，请在 .env 文件中设置或通过界面设置根路径');
+      } else if (axiosErr.response?.status === 404) {
         setLoadError('路径不存在');
       } else if (axiosErr.message === 'Network Error') {
         setLoadError('API 连接失败，请检查网络');
@@ -200,7 +210,7 @@ export default function FilesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentRoot, viewMode]);
 
   useEffect(() => { loadFiles('/'); }, [loadFiles]);
 
@@ -637,6 +647,39 @@ export default function FilesPage() {
           <div className="flex-1 min-h-0">
             {viewMode === 'trash' && <TrashView />}
             {viewMode === 'tools' && <ToolsView />}
+          </div>
+        ) : !currentRoot && viewMode !== 'node' && viewMode !== 'skill' ? (
+          /* 根路径未配置提示 */
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div className="text-center max-w-md">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/10 flex items-center justify-center">
+                <AlertTriangle className="w-8 h-8 text-amber-400" />
+              </div>
+              <h3 className="text-lg font-medium text-white mb-2">根路径未配置</h3>
+              <p className="text-sm text-zinc-400 mb-4">
+                请在 <code className="px-1.5 py-0.5 bg-zinc-800 rounded text-amber-300">.env</code> 文件中设置 <code className="px-1.5 py-0.5 bg-zinc-800 rounded text-amber-300">FILE_MANAGER_ROOT</code> 环境变量，或通过以下接口设置根路径：
+              </p>
+              <div className="bg-zinc-800/50 rounded-lg p-3 text-left text-xs font-mono text-zinc-300 mb-4">
+                PUT /flux/api/files/root<br />
+                {'{'}"root": "/path/to/your/project"{'}'}
+              </div>
+              <button
+                onClick={() => {
+                  const root = prompt('请输入根路径（如 /root/common）:');
+                  if (root) {
+                    systemApi.setRoot(root).then(() => {
+                      setCurrentRoot(root);
+                      loadFiles('/');
+                    }).catch((err: any) => {
+                      alert(err.response?.data?.error || '设置失败');
+                    });
+                  }
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm transition-colors"
+              >
+                设置根路径
+              </button>
+            </div>
           </div>
         ) : (
           <>
