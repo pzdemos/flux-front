@@ -11,9 +11,9 @@ import {
   Wifi, WifiOff, Trash2, Copy, Pencil, Bot,
   Terminal as TerminalIcon
 } from 'lucide-react';
-import { apiClient } from '@/api/client';
+import { apiClient, WS_BASE_URL } from '@/api/client';
 
-const WS_BASE = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/flux/ws/tmux`;
+const WS_BASE = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${WS_BASE_URL}/tmux`;
 const getToken = () => localStorage.getItem('flux_token') || '';
 const API_POLL_MS = 30000; // 兜底轮询：实时同步靠 WS 广播，这里拉长到 30s 降噪
 

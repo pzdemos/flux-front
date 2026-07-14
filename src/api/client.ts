@@ -1,6 +1,9 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = '/flux/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/flux/api';
+const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || '/flux/ws';
+
+export { API_BASE_URL, WS_BASE_URL };
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
