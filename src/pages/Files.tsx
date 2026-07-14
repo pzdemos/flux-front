@@ -195,7 +195,7 @@ export default function FilesPage() {
       setSelected(new Set());
     } catch (err: unknown) {
       console.error('[Files] loadFiles error:', err);
-      const axiosErr = err as AxiosError<{ error?: string; message?: string }>;
+      const axiosErr = err as AxiosError<{ error?: string; message?: string; configured?: boolean }>;
       if (axiosErr.response?.status === 400 && axiosErr.response?.data?.configured === false) {
         setLoadError('FILE_MANAGER_ROOT 未配置，请在 .env 文件中设置或通过界面设置根路径');
       } else if (axiosErr.response?.status === 404) {
@@ -227,8 +227,13 @@ export default function FilesPage() {
     if (needsRootSlash && !neededRootSlash) {
       systemApi.setRoot('/').then(() => {
         setCurrentRoot('/');
-        if (curr === 'node') { setPath('/var/server'); loadFiles('/var/server'); }
-        else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
+        if (curr === 'node') {
+          // Use FILE_MANAGER_ROOT as the default path for node mode
+          systemApi.getRoot().then(res => {
+            const defaultPath = res.data?.root || '/root';
+            setPath(defaultPath); loadFiles(defaultPath);
+          }).catch(() => { setPath('/root'); loadFiles('/root'); });
+        } else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
       }).catch(() => {});
     } else if (!needsRootSlash && neededRootSlash) {
       systemApi.setRoot('/var/www/wwwroot').then(() => {
@@ -237,8 +242,12 @@ export default function FilesPage() {
         loadFiles('/');
       }).catch(() => {});
     } else if (needsRootSlash && neededRootSlash) {
-      if (curr === 'node') { setPath('/var/server'); loadFiles('/var/server'); }
-      else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
+      if (curr === 'node') {
+        systemApi.getRoot().then(res => {
+          const defaultPath = res.data?.root || '/root';
+          setPath(defaultPath); loadFiles(defaultPath);
+        }).catch(() => { setPath('/root'); loadFiles('/root'); });
+      } else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
     }
     prevViewMode.current = viewMode;
   }, [viewMode]);
