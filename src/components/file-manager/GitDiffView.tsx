@@ -207,7 +207,11 @@ function HunkView({ hunk, repoPath, hash, file, isAdded, isDeleted }: {
     if (loading) return;
     setLoading('top');
     let oldLines = oldFileLines;
-    if (!oldLines) oldLines = await fetchFile('old');
+    if (!oldLines) {
+      const result = await fetchFile('old');
+      if (!result) { setLoading(null); return; }
+      oldLines = result;
+    }
     setExpandedTop(n => n + 20);
     setLoading(null);
   }, [loading, oldFileLines, fetchFile]);
@@ -216,7 +220,11 @@ function HunkView({ hunk, repoPath, hash, file, isAdded, isDeleted }: {
     if (loading) return;
     setLoading('bottom');
     let newLines = newFileLines;
-    if (!newLines) newLines = await fetchFile('new');
+    if (!newLines) {
+      const result = await fetchFile('new');
+      if (!result) { setLoading(null); return; }
+      newLines = result;
+    }
     setExpandedBottom(n => n + 20);
     setLoading(null);
   }, [loading, newFileLines, fetchFile]);
