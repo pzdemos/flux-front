@@ -410,6 +410,12 @@ export const ecsApi = {
     data: { IpProtocol: string; PortRange: string; SourceCidrIp?: string; Policy: string; Priority?: string },
     region: string = ECS_DEFAULT_REGION
   ) => apiClient.delete(`/ecs/security-groups/${sgId}/rules`, { params: { region }, data }),
+  updateSecurityGroupRule: (
+    sgId: string,
+    ruleId: string,
+    data: { IpProtocol: string; PortRange: string; SourceCidrIp?: string; Policy: string; Priority?: string; Description?: string },
+    region: string = ECS_DEFAULT_REGION
+  ) => apiClient.put(`/ecs/security-groups/${sgId}/rules/${ruleId}`, data, { params: { region } }),
 
   // 云盘
   getDisks: (region: string = ECS_DEFAULT_REGION, instanceId?: string) =>
