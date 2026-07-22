@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ecsApi, type EcsInstance, type EcsRegion } from '@/api/client';
 import { useAppStore } from '@/stores/app';
-import { Server, RefreshCw, Loader2, Play, Square, RotateCw, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth';
+import { Server, RefreshCw, Loader2, Play, Square, RotateCw, ChevronDown, ChevronRight, AlertTriangle, Save } from 'lucide-react';
 
 const STATUS_BADGE: Record<string, string> = {
   Running: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
@@ -11,8 +12,9 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function EcsInstancesPage() {
+  const { settings, updateSettings } = useAuthStore();
   const [regions, setRegions] = useState<EcsRegion[]>([]);
-  const [region, setRegion] = useState('cn-hangzhou');
+  const [region, setRegion] = useState(settings?.ecs_region || 'cn-hangzhou');
   const [instances, setInstances] = useState<EcsInstance[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -104,6 +106,22 @@ export default function EcsInstancesPage() {
               </option>
             ))}
           </select>
+          {region !== settings?.ecs_region && (
+            <button
+              onClick={async () => {
+                try {
+                  await updateSettings({ ecs_region: region });
+                  addNotification({ type: 'success', message: '已保存为默认地域' });
+                } catch {
+                  addNotification({ type: 'error', message: '保存失败' });
+                }
+              }}
+              className="p-2 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 transition-colors"
+              title="保存为默认地域"
+            >
+              <Save className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={load}
             disabled={loading}

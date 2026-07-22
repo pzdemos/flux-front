@@ -9,9 +9,10 @@ import { useAppStore } from '@/stores/app';
 import {
   Plus, X, Maximize2, Minimize2, Search,
   Wifi, WifiOff, Trash2, Copy, Pencil, Bot,
-  Terminal as TerminalIcon
+  Terminal as TerminalIcon, Settings
 } from 'lucide-react';
 import { apiClient, WS_BASE_URL } from '@/api/client';
+import TerminalSettingsDialog from '@/components/file-manager/TerminalSettingsDialog';
 
 const WS_BASE = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${WS_BASE_URL}/tmux`;
 const getToken = () => localStorage.getItem('flux_token') || '';
@@ -21,6 +22,7 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
   const { tabs, activeTabId, setTabs, setActiveTab, setCustomTitle, setWsCounts } = useTerminalStore();
   const isMobile = useAppStore((s) => s.isMobile);
   const [fullscreen, setFullscreen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const bootRef = useRef(false);
 
   // 从后端加载会话列表
@@ -126,6 +128,9 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
           <Plus className="w-4 h-4" />
         </button>
         <div className="flex-1" />
+        <button onClick={() => setShowSettings(true)} title="终端设置" className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
+          <Settings className="w-4 h-4" />
+        </button>
         <button
           onClick={() => setFullscreen(!fullscreen)}
           className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
@@ -157,6 +162,11 @@ export default function TerminalPage({ visible }: { visible?: boolean }) {
           ))
         )}
       </div>
+
+      {/* Terminal Settings Dialog */}
+      {showSettings && (
+        <TerminalSettingsDialog onClose={() => setShowSettings(false)} />
+      )}
     </div>
   );
 }

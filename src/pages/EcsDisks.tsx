@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ecsApi, type EcsDisk } from '@/api/client';
 import { useAppStore } from '@/stores/app';
-import { HardDrive, RefreshCw, Loader2, Link2, Unlink } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth';
+import { HardDrive, RefreshCw, Loader2, Link2, Unlink, Save } from 'lucide-react';
 
 const STATUS_BADGE: Record<string, string> = {
   In_use: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
@@ -26,7 +27,8 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export default function EcsDisksPage() {
-  const [region, setRegion] = useState('cn-hangzhou');
+  const { settings, updateSettings } = useAuthStore();
+  const [region, setRegion] = useState(settings?.disk_region || 'cn-hangzhou');
   const [disks, setDisks] = useState<EcsDisk[]>([]);
   const [loading, setLoading] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
@@ -95,6 +97,22 @@ export default function EcsDisksPage() {
             className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm outline-none focus:ring-1 focus:ring-emerald-500 w-40"
             placeholder="地域 ID"
           />
+          {region !== settings?.disk_region && (
+            <button
+              onClick={async () => {
+                try {
+                  await updateSettings({ disk_region: region });
+                  addNotification({ type: 'success', message: '已保存为默认地域' });
+                } catch {
+                  addNotification({ type: 'error', message: '保存失败' });
+                }
+              }}
+              className="p-2 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 transition-colors"
+              title="保存为默认地域"
+            >
+              <Save className="w-4 h-4" />
+            </button>
+          )}
           <button onClick={load} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-sm disabled:opacity-50">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> 刷新
           </button>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ecsApi, type EcsSecurityGroup, type EcsSecurityGroupRule } from '@/api/client';
 import { useAppStore } from '@/stores/app';
+import { useAuthStore } from '@/stores/auth';
 import { Shield, RefreshCw, Loader2, Plus, Trash2, X, Save, Edit3 } from 'lucide-react';
 
 const POLICY_BADGE: Record<string, string> = {
@@ -20,7 +21,8 @@ const PROTOCOL_BADGE: Record<string, string> = {
 };
 
 export default function EcsSecurityGroupsPage() {
-  const [region, setRegion] = useState('cn-hangzhou');
+  const { settings, updateSettings } = useAuthStore();
+  const [region, setRegion] = useState(settings?.sg_region || 'cn-hangzhou');
   const [groups, setGroups] = useState<EcsSecurityGroup[]>([]);
   const [selectedSg, setSelectedSg] = useState<string | null>(null);
   const [rules, setRules] = useState<EcsSecurityGroupRule[]>([]);
@@ -183,6 +185,22 @@ export default function EcsSecurityGroupsPage() {
             className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm outline-none focus:ring-1 focus:ring-emerald-500 w-40"
             placeholder="地域 ID"
           />
+          {region !== settings?.sg_region && (
+            <button
+              onClick={async () => {
+                try {
+                  await updateSettings({ sg_region: region });
+                  addNotification({ type: 'success', message: '已保存为默认地域' });
+                } catch {
+                  addNotification({ type: 'error', message: '保存失败' });
+                }
+              }}
+              className="p-2 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 transition-colors"
+              title="保存为默认地域"
+            >
+              <Save className="w-4 h-4" />
+            </button>
+          )}
           <button onClick={() => { loadGroups(); loadRules(); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-sm">
             <RefreshCw className="w-4 h-4" /> 刷新
           </button>
