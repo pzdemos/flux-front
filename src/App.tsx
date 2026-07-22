@@ -35,13 +35,22 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
-          path="/*"
+          path="/"
           element={
             <ProtectedRoute>
               <MainLayout />
             </ProtectedRoute>
           }
-        />
+        >
+          <Route index element={<Navigate to="files" replace />} />
+          <Route path="files" element={null} />
+          <Route path="terminal" element={null} />
+          <Route path="dns" element={null} />
+          <Route path="ecs" element={null} />
+          <Route path="sg" element={null} />
+          <Route path="disk" element={null} />
+          <Route path="*" element={<Navigate to="files" replace />} />
+        </Route>
       </Routes>
     </HashRouter>
   );

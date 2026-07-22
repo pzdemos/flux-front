@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
 import {
@@ -11,7 +13,9 @@ import {
   Server,
   Shield,
   HardDrive,
+  UserCog,
 } from 'lucide-react';
+import UserManagementDialog from '@/components/file-manager/UserManagementDialog';
 
 const modules = [
   { id: 'files' as const, label: '文件管理', icon: FolderOpen },
@@ -23,8 +27,20 @@ const modules = [
 ];
 
 export default function Sidebar() {
-  const { activeModule, sidebarOpen, toggleSidebar, isMobile, setActiveModule, setViewMode } = useAppStore();
+  const { activeModule, sidebarOpen, toggleSidebar, isMobile, setViewMode } = useAppStore();
   const { user, logout } = useAuthStore();
+  const navigate = useNavigate();
+  const [showUserManagement, setShowUserManagement] = useState(false);
+
+  const handleModuleClick = (moduleId: string) => {
+    navigate(`/${moduleId}`);
+    setViewMode('files');
+  };
+
+  const handleSettingsClick = () => {
+    navigate('/files');
+    setViewMode('tools');
+  };
 
   return (
     <>
@@ -70,10 +86,7 @@ export default function Sidebar() {
               return (
                 <button
                   key={mod.id}
-                  onClick={() => {
-                    setActiveModule(mod.id);
-                    setViewMode('files');
-                  }}
+                  onClick={() => handleModuleClick(mod.id)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-default
                     ${isActive
                       ? 'bg-emerald-600/15 text-emerald-400 border border-emerald-600/20'
@@ -101,14 +114,18 @@ export default function Sidebar() {
               </div>
             </div>
             <button
-              onClick={() => {
-                setActiveModule('files');
-                setViewMode('tools');
-              }}
+              onClick={handleSettingsClick}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors"
             >
               <Settings className="w-4 h-4" />
               <span>设置</span>
+            </button>
+            <button
+              onClick={() => setShowUserManagement(true)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors"
+            >
+              <UserCog className="w-4 h-4" />
+              <span>用户管理</span>
             </button>
             <button
               onClick={logout}
@@ -128,6 +145,10 @@ export default function Sidebar() {
         >
           <ChevronRight className="w-4 h-4" />
         </button>
+      )}
+
+      {showUserManagement && (
+        <UserManagementDialog onClose={() => setShowUserManagement(false)} />
       )}
     </>
   );
