@@ -289,7 +289,7 @@ export default function DnsPage() {
                       </td>
                       <td className="py-2 px-2 font-mono text-emerald-400 whitespace-nowrap">
                         {rec.RR === '@' ? <span className="text-zinc-300">@ <span className="text-zinc-500">(根域)</span></span> : rec.RR}
-                        {rec.Status && rec.Status !== 'Enable' && (
+                        {rec.Status && rec.Status.toUpperCase() !== 'ENABLE' && (
                           <span className="ml-2 text-xs text-amber-500">[停用]</span>
                         )}
                       </td>
