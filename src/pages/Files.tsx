@@ -175,43 +175,6 @@ export default function FilesPage() {
     return null;
   }, [currentRoot]);
 
-  useEffect(() => {
-    if (viewMode === 'node' || viewMode === 'skill') {
-      // Save original root before overwriting for node/skill mode
-      systemApi.getRoot().then(res => {
-        savedRoot.current = res.data?.root || null;
-        return systemApi.setRoot('/');
-      }).then(() => setCurrentRoot('/')).catch(() => {});
-    } else {
-      // 优先使用用户设置的 files_root
-      const userRoot = settings?.files_root;
-      if (userRoot) {
-        systemApi.setRoot(userRoot).then(() => {
-          setCurrentRoot(userRoot);
-        }).catch(() => {
-          // 回退到服务端默认值
-          systemApi.getRoot().then((res) => {
-            const { root, configured } = res.data;
-            if (configured && root) {
-              setCurrentRoot(root);
-            } else {
-              setCurrentRoot(null);
-            }
-          }).catch(() => setCurrentRoot(null));
-        });
-      } else {
-        systemApi.getRoot().then((res) => {
-          const { root, configured } = res.data;
-          if (configured && root) {
-            setCurrentRoot(root);
-          } else {
-            setCurrentRoot(null);
-          }
-        }).catch(() => setCurrentRoot(null));
-      }
-    }
-  }, [settings?.files_root, viewMode]);
-
   const loadFiles = useCallback(async (p: string) => {
     if (!currentRoot && viewMode !== 'node' && viewMode !== 'skill') {
       // 根路径未配置，不加载文件列表
@@ -255,53 +218,51 @@ export default function FilesPage() {
     }
   }, [currentRoot, viewMode]);
 
-  useEffect(() => { loadFiles('/'); }, [loadFiles]);
-
-  // Switch root and path when entering/leaving node/skill views
-  const prevViewMode = useRef(viewMode);
-  const savedRoot = useRef<string | null>(null);
+  // 统一管理 root + path：viewMode 或 settings 相关字段变化时，重新设置后端 root、currentRoot、path
+  // （合并了原本分散在两个 useEffect 里的 root 切换逻辑，避免相互覆盖的 race）
   useEffect(() => {
-    const prev = prevViewMode.current;
-    const curr = viewMode;
-    if (curr === prev) return;
+    let cancelled = false;
 
-    const needsRootSlash = curr === 'node' || curr === 'skill';
-    const neededRootSlash = prev === 'node' || prev === 'skill';
+    const setRootAndLoad = (root: string, targetPath: string) => {
+      systemApi.setRoot(root)
+        .then(() => {
+          if (cancelled) return;
+          setCurrentRoot(root);
+          setPath(targetPath);
+          loadFiles(targetPath);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setCurrentRoot(null);
+        });
+    };
 
-    if (needsRootSlash && !neededRootSlash) {
-      // Entering node/skill: save current root, then switch to /
-      systemApi.getRoot().then(res => {
-        savedRoot.current = res.data?.root || null;
-        return systemApi.setRoot('/');
-      }).then(() => {
-        setCurrentRoot('/');
-        if (curr === 'node') {
-          const defaultPath = settings?.node_path || '/root';
-          setPath(defaultPath); loadFiles(defaultPath);
-        } else {
-          const defaultPath = settings?.skill_path || '/root/.skill';
-          setPath(defaultPath); loadFiles(defaultPath);
-        }
-      }).catch(() => {});
-    } else if (!needsRootSlash && neededRootSlash) {
-      // Leaving node/skill: restore saved root
-      const restoreRoot = savedRoot.current || '/var/server';
-      systemApi.setRoot(restoreRoot).then(() => {
-        setCurrentRoot(restoreRoot);
-        setPath('/');
-        loadFiles('/');
-      }).catch(() => {});
-    } else if (needsRootSlash && neededRootSlash) {
-      if (curr === 'node') {
-        const defaultPath = settings?.node_path || '/root';
-        setPath(defaultPath); loadFiles(defaultPath);
+    if (viewMode === 'node' || viewMode === 'skill') {
+      const defaultPath = viewMode === 'node'
+        ? (settings?.node_path || '/root')
+        : (settings?.skill_path || '/root/.skill');
+      setRootAndLoad('/', defaultPath);
+    } else {
+      const userRoot = settings?.files_root;
+      if (userRoot) {
+        setRootAndLoad(userRoot, '/');
       } else {
-        const defaultPath = settings?.skill_path || '/root/.skill';
-        setPath(defaultPath); loadFiles(defaultPath);
+        // 没设置 files_root，回退到服务端默认值
+        systemApi.getRoot().then(res => {
+          if (cancelled) return;
+          const { root, configured } = res.data;
+          if (configured && root) {
+            setRootAndLoad(root, '/');
+          } else {
+            setCurrentRoot(null);
+          }
+        }).catch(() => setCurrentRoot(null));
       }
     }
-    prevViewMode.current = viewMode;
-  }, [viewMode, settings]);
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, settings?.files_root, settings?.node_path, settings?.skill_path]);
 
   // Close context menu on click outside
   useEffect(() => {
