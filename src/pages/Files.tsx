@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { fileApi, uploadApi, apiClient, systemApi, gitApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
+import { useAuthStore } from '@/stores/auth';
 import type { AxiosError } from 'axios';
 import FileEditor from '@/components/file-manager/FileEditor';
 import CompressDialog from '@/components/file-manager/CompressDialog';
@@ -10,13 +11,15 @@ import ToolsView from '@/components/file-manager/ToolsView';
 import SelectionBar from '@/components/file-manager/SelectionBar';
 import ActionSheet from '@/components/file-manager/ActionSheet';
 import GitDiffView from '@/components/file-manager/GitDiffView';
+import RemoteDownloadDialog from '@/components/file-manager/RemoteDownloadDialog';
+import FilePreviewDialog from '@/components/file-manager/FilePreviewDialog';
 import {
   Folder, File as FileIcon, ChevronRight, ChevronUp, ChevronDown, Home,
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
   Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
   FileArchive, Wrench, X, Check, Square, ClipboardCheck, Server, BookOpen,
-  GitBranch, AlertTriangle
+  GitBranch, AlertTriangle, Link, Eye, Settings
 } from 'lucide-react';
 import type { FileItem, RawFileItem, GitCommit } from '@/types';
 
@@ -47,6 +50,7 @@ function formatDate(isoDate: string): string {
 }
 
 export default function FilesPage() {
+  const { settings, updateSettings } = useAuthStore();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [path, setPath] = useState('/');
   const [currentRoot, setCurrentRoot] = useState<string | null>(null);
@@ -118,6 +122,16 @@ export default function FilesPage() {
   const [chmodFile, setChmodFile] = useState<FileItem | null>(null);
   const [chmodValue, setChmodValue] = useState('755');
 
+  // New feature dialogs
+  const [showRemoteDownload, setShowRemoteDownload] = useState(false);
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+  const [showFilesRootSetting, setShowFilesRootSetting] = useState(false);
+  const [filesRootInput, setFilesRootInput] = useState('');
+  const [showNodePathSetting, setShowNodePathSetting] = useState(false);
+  const [nodePathInput, setNodePathInput] = useState('');
+  const [showSkillPathSetting, setShowSkillPathSetting] = useState(false);
+  const [skillPathInput, setSkillPathInput] = useState('');
+
   // Git dialog
   const [gitDir, setGitDir] = useState<FileItem | null>(null);
   const [gitCommits, setGitCommits] = useState<GitCommit[]>([]);
@@ -169,16 +183,34 @@ export default function FilesPage() {
         return systemApi.setRoot('/');
       }).then(() => setCurrentRoot('/')).catch(() => {});
     } else {
-      systemApi.getRoot().then((res) => {
-        const { root, configured } = res.data;
-        if (configured && root) {
-          setCurrentRoot(root);
-        } else {
-          setCurrentRoot(null);
-        }
-      }).catch(() => setCurrentRoot(null));
+      // 优先使用用户设置的 files_root
+      const userRoot = settings?.files_root;
+      if (userRoot) {
+        systemApi.setRoot(userRoot).then(() => {
+          setCurrentRoot(userRoot);
+        }).catch(() => {
+          // 回退到服务端默认值
+          systemApi.getRoot().then((res) => {
+            const { root, configured } = res.data;
+            if (configured && root) {
+              setCurrentRoot(root);
+            } else {
+              setCurrentRoot(null);
+            }
+          }).catch(() => setCurrentRoot(null));
+        });
+      } else {
+        systemApi.getRoot().then((res) => {
+          const { root, configured } = res.data;
+          if (configured && root) {
+            setCurrentRoot(root);
+          } else {
+            setCurrentRoot(null);
+          }
+        }).catch(() => setCurrentRoot(null));
+      }
     }
-  }, []);
+  }, [settings?.files_root]);
 
   const loadFiles = useCallback(async (p: string) => {
     if (!currentRoot && viewMode !== 'node' && viewMode !== 'skill') {
@@ -244,11 +276,12 @@ export default function FilesPage() {
       }).then(() => {
         setCurrentRoot('/');
         if (curr === 'node') {
-          systemApi.getRoot().then(res => {
-            const defaultPath = res.data?.root || '/root';
-            setPath(defaultPath); loadFiles(defaultPath);
-          }).catch(() => { setPath('/root'); loadFiles('/root'); });
-        } else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
+          const defaultPath = settings?.node_path || '/root';
+          setPath(defaultPath); loadFiles(defaultPath);
+        } else {
+          const defaultPath = settings?.skill_path || '/root/.skill';
+          setPath(defaultPath); loadFiles(defaultPath);
+        }
       }).catch(() => {});
     } else if (!needsRootSlash && neededRootSlash) {
       // Leaving node/skill: restore saved root
@@ -260,14 +293,15 @@ export default function FilesPage() {
       }).catch(() => {});
     } else if (needsRootSlash && neededRootSlash) {
       if (curr === 'node') {
-        systemApi.getRoot().then(res => {
-          const defaultPath = res.data?.root || '/root';
-          setPath(defaultPath); loadFiles(defaultPath);
-        }).catch(() => { setPath('/root'); loadFiles('/root'); });
-      } else { setPath('/root/.skill'); loadFiles('/root/.skill'); }
+        const defaultPath = settings?.node_path || '/root';
+        setPath(defaultPath); loadFiles(defaultPath);
+      } else {
+        const defaultPath = settings?.skill_path || '/root/.skill';
+        setPath(defaultPath); loadFiles(defaultPath);
+      }
     }
     prevViewMode.current = viewMode;
-  }, [viewMode]);
+  }, [viewMode, settings]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -480,15 +514,18 @@ export default function FilesPage() {
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      await uploadApi.upload(file, path);
-      addNotification({ type: 'success', message: `上传成功: ${file.name}` });
-      loadFiles(path);
-    } catch {
-      addNotification({ type: 'error', message: '上传失败' });
+    const filesList = e.target.files;
+    if (!filesList?.length) return;
+    for (let i = 0; i < filesList.length; i++) {
+      const file = filesList[i];
+      try {
+        await uploadApi.upload(file, path);
+        addNotification({ type: 'success', message: `上传成功: ${file.name}` });
+      } catch {
+        addNotification({ type: 'error', message: `上传失败: ${file.name}` });
+      }
     }
+    loadFiles(path);
     e.target.value = '';
   };
 
@@ -643,6 +680,16 @@ export default function FilesPage() {
               </button>
             );
           })}
+          {viewMode === 'files' && (
+            <button
+              onClick={() => { setFilesRootInput(currentRoot || ''); setShowFilesRootSetting(true); }}
+              className="ml-2 flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-white hover:bg-zinc-800/60 transition-colors"
+              title="设置文件管理根目录"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">根目录</span>
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-1 md:hidden">
             <button
               onClick={() => { setShowNewFolderDialog(true); setNewName(''); }}
@@ -802,6 +849,25 @@ export default function FilesPage() {
                     className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40" />
                 </div>
 
+                {viewMode === 'node' && (
+                  <button
+                    onClick={() => { setNodePathInput(settings?.node_path || '/root'); setShowNodePathSetting(true); }}
+                    className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-white hover:bg-zinc-800/60 transition-colors"
+                    title="设置项目默认路径"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {viewMode === 'skill' && (
+                  <button
+                    onClick={() => { setSkillPathInput(settings?.skill_path || '/root/.skill'); setShowSkillPathSetting(true); }}
+                    className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-white hover:bg-zinc-800/60 transition-colors"
+                    title="设置Skill默认路径"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
                 <button onClick={() => setSortBy(sortBy === 'name' ? 'date' : 'name')} className="hidden md:block p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white" title="切换排序"><ArrowUpDown className="w-4 h-4" /></button>
 
                 {/* New dropdown - PC */}
@@ -870,6 +936,19 @@ export default function FilesPage() {
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium text-slate-200 group-hover/item:text-white">上传文件</div>
                             <div className="text-xs text-slate-500">从本地上传</div>
+                          </div>
+                        </button>
+
+                        <button
+                          onClick={() => { setShowRemoteDownload(true); setShowNewMenu(false); }}
+                          className="group/item w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-500/20 text-sky-400 group-hover/item:bg-sky-500/30 group-hover/item:text-sky-300 transition-all">
+                            <Link className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-200 group-hover/item:text-white">远程下载</div>
+                            <div className="text-xs text-slate-500">从URL下载文件</div>
                           </div>
                         </button>
                       </div>
@@ -1253,25 +1332,23 @@ export default function FilesPage() {
         )}
       </div>
 
-      {/* Editor modal for desktop */}
+      {/* Editor fullscreen for desktop */}
       {!isMobile && editingFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditingFile(null)}>
-          <div className="w-[90vw] h-[85vh] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-              <div className="flex items-center gap-2">
-                <FileIcon className="w-5 h-5 text-zinc-400" />
-                <h3 className="text-base font-semibold text-white truncate">{editingFile.name}</h3>
-              </div>
-              <button
-                onClick={() => setEditingFile(null)}
-                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 z-50 bg-zinc-950 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900">
+            <div className="flex items-center gap-2">
+              <FileIcon className="w-5 h-5 text-zinc-400" />
+              <h3 className="text-base font-semibold text-white truncate">{editingFile.name}</h3>
             </div>
-            <div className="flex-1 min-h-0">
-              <FileEditor filePath={editingFile.path} fileName={editingFile.name} onClose={() => setEditingFile(null)} />
-            </div>
+            <button
+              onClick={() => setEditingFile(null)}
+              className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <FileEditor filePath={editingFile.path} fileName={editingFile.name} onClose={() => setEditingFile(null)} />
           </div>
         </div>
       )}
@@ -1289,6 +1366,16 @@ export default function FilesPage() {
           <button onClick={() => { handleDownload(contextMenu.file); setContextMenu(null); }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             <Download className="w-4 h-4" />下载
+          </button>
+          {!contextMenu.file.isDirectory && /\.(jpg|jpeg|png|gif|webp|svg|bmp|pdf)$/i.test(contextMenu.file.name) && (
+            <button onClick={() => { setPreviewFile(contextMenu.file); setContextMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
+              <Eye className="w-4 h-4" />预览
+            </button>
+          )}
+          <button onClick={() => { setShowRemoteDownload(true); setContextMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
+            <Link className="w-4 h-4" />远程下载到此
           </button>
 
           <div className="border-t border-zinc-700 my-1" />
@@ -1600,6 +1687,168 @@ export default function FilesPage() {
           }
         }}
       />
+
+      {/* Remote Download Dialog */}
+      {showRemoteDownload && (
+        <RemoteDownloadDialog
+          currentPath={path}
+          onClose={() => setShowRemoteDownload(false)}
+          onSuccess={() => loadFiles(path)}
+        />
+      )}
+
+      {/* File Preview Dialog */}
+      {previewFile && (
+        <FilePreviewDialog
+          filePath={previewFile.path}
+          fileName={previewFile.name}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+
+      {/* Files Root Settings Dialog */}
+      {showFilesRootSetting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowFilesRootSetting(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-lg font-semibold text-white">文件管理根目录</h3>
+              </div>
+              <button onClick={() => setShowFilesRootSetting(false)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="text-xs text-zinc-400 mb-4">
+              设置文件管理器的根目录路径，修改后将保存到用户配置。
+            </div>
+            <input
+              type="text"
+              value={filesRootInput}
+              onChange={(e) => setFilesRootInput(e.target.value)}
+              placeholder="/var/server"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white font-mono placeholder-zinc-500 outline-none focus:border-emerald-500"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setShowFilesRootSetting(false)} className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-sm hover:bg-zinc-700 transition-colors">
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  if (!filesRootInput) return;
+                  try {
+                    await updateSettings({ files_root: filesRootInput });
+                    addNotification({ type: 'success', message: '根目录已保存' });
+                    setShowFilesRootSetting(false);
+                  } catch {
+                    addNotification({ type: 'error', message: '保存失败' });
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-500 transition-colors"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Node Path Settings Dialog */}
+      {showNodePathSetting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowNodePathSetting(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-lg font-semibold text-white">项目管理默认路径</h3>
+              </div>
+              <button onClick={() => setShowNodePathSetting(false)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="text-xs text-zinc-400 mb-4">
+              切换到「node项目管理」时默认打开的目录路径。
+            </div>
+            <input
+              type="text"
+              value={nodePathInput}
+              onChange={(e) => setNodePathInput(e.target.value)}
+              placeholder="/root"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white font-mono placeholder-zinc-500 outline-none focus:border-emerald-500"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setShowNodePathSetting(false)} className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-sm hover:bg-zinc-700 transition-colors">
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  if (!nodePathInput) return;
+                  try {
+                    await updateSettings({ node_path: nodePathInput });
+                    addNotification({ type: 'success', message: '项目默认路径已保存' });
+                    setShowNodePathSetting(false);
+                  } catch {
+                    addNotification({ type: 'error', message: '保存失败' });
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-500 transition-colors"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Skill Path Settings Dialog */}
+      {showSkillPathSetting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSkillPathSetting(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-lg font-semibold text-white">Skill管理默认路径</h3>
+              </div>
+              <button onClick={() => setShowSkillPathSetting(false)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="text-xs text-zinc-400 mb-4">
+              切换到「skill管理」时默认打开的目录路径。
+            </div>
+            <input
+              type="text"
+              value={skillPathInput}
+              onChange={(e) => setSkillPathInput(e.target.value)}
+              placeholder="/root/.skill"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white font-mono placeholder-zinc-500 outline-none focus:border-emerald-500"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setShowSkillPathSetting(false)} className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-sm hover:bg-zinc-700 transition-colors">
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  if (!skillPathInput) return;
+                  try {
+                    await updateSettings({ skill_path: skillPathInput });
+                    addNotification({ type: 'success', message: 'Skill默认路径已保存' });
+                    setShowSkillPathSetting(false);
+                  } catch {
+                    addNotification({ type: 'error', message: '保存失败' });
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-500 transition-colors"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

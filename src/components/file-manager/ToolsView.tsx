@@ -17,12 +17,18 @@ export default function ToolsView() {
   const loadDiskInfo = useCallback(async () => {
     setLoading(true);
     try {
-      const [usageRes, sysRes] = await Promise.all([
+      const [usageRes, sysRes] = await Promise.allSettled([
         systemApi.diskUsage('/'),
         systemApi.diskSystem(),
       ]);
-      setDiskUsage(usageRes.data);
-      setDiskSystem(sysRes.data);
+      if (sysRes.status === 'fulfilled') {
+        setDiskSystem(sysRes.value.data);
+      } else {
+        addNotification({ type: 'error', message: '获取系统磁盘信息失败' });
+      }
+      if (usageRes.status === 'fulfilled') {
+        setDiskUsage(usageRes.value.data);
+      }
     } catch {
       addNotification({ type: 'error', message: '获取磁盘信息失败' });
     } finally {
