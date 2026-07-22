@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { fileApi, uploadApi, apiClient, systemApi, gitApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
@@ -123,6 +123,48 @@ export default function FilesPage() {
   const [extractFile, setExtractFile] = useState<FileItem | null>(null);
   const [chmodFile, setChmodFile] = useState<FileItem | null>(null);
   const [chmodValue, setChmodValue] = useState('755');
+  // 权限位 checkbox 状态（所有者/用户组/其他 × 读取/写入/执行），与 chmodValue 双向同步
+  type PermBits = {
+    owner: { read: boolean; write: boolean; execute: boolean };
+    group: { read: boolean; write: boolean; execute: boolean };
+    other: { read: boolean; write: boolean; execute: boolean };
+  };
+  const [permBits, setPermBits] = useState<PermBits>({
+    owner: { read: false, write: false, execute: false },
+    group: { read: false, write: false, execute: false },
+    other: { read: false, write: false, execute: false },
+  });
+
+  const parsePerms = (val: string): PermBits => {
+    const digits = val.padStart(3, '0').slice(-3).split('').map((d) => parseInt(d, 10) || 0);
+    const toBits = (n: number) => ({
+      read: (n & 4) !== 0,
+      write: (n & 2) !== 0,
+      execute: (n & 1) !== 0,
+    });
+    return {
+      owner: toBits(digits[0]),
+      group: toBits(digits[1]),
+      other: toBits(digits[2]),
+    };
+  };
+
+  const composePerms = (bits: PermBits): string => {
+    const toDigit = (b: { read: boolean; write: boolean; execute: boolean }) =>
+      (b.read ? 4 : 0) + (b.write ? 2 : 0) + (b.execute ? 1 : 0);
+    return `${toDigit(bits.owner)}${toDigit(bits.group)}${toDigit(bits.other)}`;
+  };
+
+  const togglePerm = (who: 'owner' | 'group' | 'other', perm: 'read' | 'write' | 'execute') => {
+    setPermBits((prev) => {
+      const next = {
+        ...prev,
+        [who]: { ...prev[who], [perm]: !prev[who][perm] },
+      };
+      setChmodValue(composePerms(next));
+      return next;
+    });
+  };
 
   // New feature dialogs
   const [showRemoteDownload, setShowRemoteDownload] = useState(false);
@@ -298,6 +340,7 @@ export default function FilesPage() {
     if (chmodFile) {
       // Convert symbolic permission to numeric if needed
       const perm = chmodFile.permissions;
+      let numeric = '755';
       if (perm.startsWith('-')) {
         // Symbolic format like -rw-r--r--, convert to numeric
         const owner = perm.slice(1, 4);
@@ -312,12 +355,24 @@ export default function FilesPage() {
           return num;
         };
 
-        setChmodValue(`${toNumeric(owner)}${toNumeric(group)}${toNumeric(other)}`);
+        numeric = `${toNumeric(owner)}${toNumeric(group)}${toNumeric(other)}`;
       } else {
-        setChmodValue(perm);
+        numeric = perm;
       }
+      setChmodValue(numeric);
+      setPermBits(parsePerms(numeric));
     }
   }, [chmodFile]);
+
+  // ESC 关闭桌面端文件编辑器
+  useEffect(() => {
+    if (!editingFile || isMobile) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setEditingFile(null);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editingFile, isMobile]);
 
   const navigate = useCallback((file: FileItem) => {
     if (file.isDirectory) {
@@ -345,6 +400,15 @@ export default function FilesPage() {
       if (sortBy === 'size') return b.size - a.size;
       return new Date(b.modified).getTime() - new Date(a.modified).getTime();
     });
+
+  // 最新修改时间（用于在文件名旁标记最新文件）
+  const latestModifiedMs = useMemo(() => {
+    if (files.length === 0) return 0;
+    return Math.max(...files.map((f) => {
+      const t = new Date(f.modified).getTime();
+      return isNaN(t) ? 0 : t;
+    }));
+  }, [files]);
 
   const toggleSelect = (name: string) => {
     setSelected((prev) => {
@@ -1171,6 +1235,9 @@ export default function FilesPage() {
                             className={`text-sm truncate cursor-pointer transition-colors ${!file.isDirectory && file.name.endsWith('.sh') ? 'text-red-400 hover:text-red-300 font-medium' : 'text-zinc-200 hover:text-white'}`}
                             onClick={() => navigate(file)}
                           >{file.name}</span>
+                          {!file.isDirectory && latestModifiedMs > 0 && file.modified && new Date(file.modified).getTime() === latestModifiedMs && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 ml-1" title="最新文件" />
+                          )}
                           {file.isDirectory && file.isGitRepo && (
                             <button
                               onClick={(e) => { e.stopPropagation(); openGitLog(file); }}
@@ -1405,112 +1472,92 @@ export default function FilesPage() {
       {/* ===== Dialogs ===== */}
       {chmodFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setChmodFile(null)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Lock className="w-5 h-5 text-indigo-400" />
-                修改权限
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                <Lock className="w-4 h-4 text-emerald-400" />
+                权限设置
               </h3>
-              <button onClick={() => setChmodFile(null)} className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white">
+              <button onClick={() => setChmodFile(null)} className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-sm text-slate-400 mb-4">{chmodFile.path}</p>
+            {/* Body */}
+            <div className="px-5 py-4 space-y-4 overflow-y-auto">
+              <p className="text-xs text-slate-400 font-mono truncate">{chmodFile.path}</p>
 
-            {/* Permission presets */}
-            <div className="mb-5">
-              <label className="text-xs text-slate-500 mb-2 block">常用权限预设</label>
-              <div className="grid grid-cols-4 gap-2">
-                <button
-                  onClick={() => setChmodValue('755')}
-                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
-                    chmodValue === '755'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
-                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
-                  }`}
-                >
-                  755
-                </button>
-                <button
-                  onClick={() => setChmodValue('644')}
-                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
-                    chmodValue === '644'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
-                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
-                  }`}
-                >
-                  644
-                </button>
-                <button
-                  onClick={() => setChmodValue('600')}
-                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
-                    chmodValue === '600'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
-                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
-                  }`}
-                >
-                  600
-                </button>
-                <button
-                  onClick={() => setChmodValue('777')}
-                  className={`px-3 py-2 rounded-lg text-sm font-mono font-medium transition-all ${
-                    chmodValue === '777'
-                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/50'
-                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-600'
-                  }`}
-                >
-                  777
-                </button>
+              {/* 3×3 Permission Grid */}
+              <div className="rounded-lg border border-slate-700 overflow-hidden">
+                <div className="grid grid-cols-4 bg-slate-800/50 text-xs text-slate-400">
+                  <div className="px-3 py-2"></div>
+                  <div className="px-3 py-2 text-center font-medium">读取</div>
+                  <div className="px-3 py-2 text-center font-medium">写入</div>
+                  <div className="px-3 py-2 text-center font-medium">执行</div>
+                </div>
+                {(['owner', 'group', 'other'] as const).map((who) => {
+                  const labels = { owner: '所有者', group: '用户组', other: '其他' };
+                  return (
+                    <div key={who} className="grid grid-cols-4 border-t border-slate-700/50">
+                      <div className="px-3 py-2.5 text-xs text-slate-300 flex items-center font-medium">
+                        {labels[who]}
+                      </div>
+                      {(['read', 'write', 'execute'] as const).map((perm) => {
+                        const checked = permBits[who][perm];
+                        return (
+                          <button
+                            key={perm}
+                            onClick={() => togglePerm(who, perm)}
+                            className="px-3 py-2.5 flex items-center justify-center hover:bg-slate-800/40 transition-colors"
+                          >
+                            {checked ? (
+                              <div className="w-5 h-5 rounded border border-emerald-500 bg-emerald-500/20 flex items-center justify-center">
+                                <Check className="w-3.5 h-3.5 text-emerald-400" strokeWidth={3} />
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 rounded border border-slate-600 hover:border-slate-500" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Numeric input */}
+              <div>
+                <label className="text-xs text-slate-500 mb-1.5 block">权限</label>
+                <input
+                  type="text"
+                  value={chmodValue}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^0-7]/g, '');
+                    setChmodValue(val);
+                    if (val.length === 3) setPermBits(parsePerms(val));
+                  }}
+                  placeholder="755"
+                  maxLength={3}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm font-mono outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20"
+                />
+                <div className="text-xs text-slate-500 mt-1.5">格式：所有者 | 用户组 | 其他（如 755 = rwxr-xr-x）</div>
               </div>
             </div>
 
-            {/* Custom input */}
-            <div className="mb-5">
-              <label className="text-xs text-slate-500 mb-2 block">自定义权限 (数字格式，如 755)</label>
-              <input
-                type="text"
-                value={chmodValue}
-                onChange={(e) => setChmodValue(e.target.value.replace(/[^0-7]/g, ''))}
-                placeholder="755"
-                maxLength={3}
-                className="w-full px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm font-mono outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
-              />
-            </div>
-
-            {/* Permission description */}
-            <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 mb-5">
-              <div className="text-xs text-slate-500 mb-2">权限说明</div>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="flex items-center gap-1">
-                  <span className="font-mono text-emerald-400">7</span>
-                  <span className="text-slate-400">读写执行</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="font-mono text-amber-400">5</span>
-                  <span className="text-slate-400">读执行</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="font-mono text-rose-400">0</span>
-                  <span className="text-slate-400">无权限</span>
-                </div>
-              </div>
-              <div className="text-xs text-slate-500 mt-2">格式：所有者|组|其他 (如 755 = rwxr-xr-x)</div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleChmod(chmodFile, chmodValue)}
-                className="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-sm font-medium transition-all"
-              >
-                应用权限
-              </button>
+            {/* Footer */}
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-700">
               <button
                 onClick={() => setChmodFile(null)}
-                className="px-4 py-2.5 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 text-sm transition-colors"
+                className="px-4 py-2 rounded-lg bg-slate-700 text-slate-300 text-sm hover:bg-slate-600 transition-colors"
               >
                 取消
+              </button>
+              <button
+                onClick={() => handleChmod(chmodFile, chmodValue)}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white text-sm font-medium transition-all"
+              >
+                确定
               </button>
             </div>
           </div>
