@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { compressApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import { X, FileArchive, Loader2 } from 'lucide-react';
+import type { AxiosError } from 'axios';
 
 interface ExtractDialogProps {
   filePath: string;
@@ -20,13 +21,12 @@ export default function ExtractDialog({ filePath, fileName, currentPath, onClose
   const isTar = fileName.endsWith('.tar') || fileName.endsWith('.tar.gz') || fileName.endsWith('.tgz');
 
   const handleExtract = async () => {
-    const outDir = outputDir || currentPath;
     setLoading(true);
     try {
       if (isZip) {
-        await compressApi.extractZip(filePath, outDir);
+        await compressApi.extractZip(filePath, outputDir || undefined);
       } else if (isTar) {
-        await compressApi.extractTar(filePath, outDir);
+        await compressApi.extractTar(filePath, outputDir || undefined);
       } else {
         addNotification({ type: 'error', message: '不支持的压缩格式' });
         return;
@@ -34,8 +34,10 @@ export default function ExtractDialog({ filePath, fileName, currentPath, onClose
       addNotification({ type: 'success', message: '解压完成' });
       onSuccess();
       onClose();
-    } catch {
-      addNotification({ type: 'error', message: '解压失败' });
+    } catch (err: unknown) {
+      const axiosErr = err as AxiosError<{ error?: string; message?: string }>;
+      const msg = axiosErr.response?.data?.error || axiosErr.response?.data?.message || axiosErr.message || '未知错误';
+      addNotification({ type: 'error', message: `解压失败: ${msg}` });
     } finally {
       setLoading(false);
     }
@@ -62,7 +64,7 @@ export default function ExtractDialog({ filePath, fileName, currentPath, onClose
         <p className="text-sm text-zinc-400 mb-3 truncate">{fileName}</p>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-zinc-500 mb-1 block">解压到目录（留空为当前目录）</label>
+            <label className="text-xs text-zinc-500 mb-1 block">解压到目录（留空则自动建同名文件夹，重名时加序号）</label>
             <input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={currentPath}
               className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white outline-none focus:border-emerald-500" autoFocus
               onKeyDown={(e) => e.key === 'Enter' && handleExtract()} />

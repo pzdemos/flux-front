@@ -183,11 +183,11 @@ export const compressApi = {
     apiClient.post('/files/compress/tar', { paths, outputFilename }),
 
   /** 3. ZIP 解压 */
-  extractZip: (path: string, outputDir: string) =>
+  extractZip: (path: string, outputDir?: string) =>
     apiClient.post('/files/extract/zip', { path, outputDir }),
 
   /** 4. TAR.GZ 解压 */
-  extractTar: (path: string, outputDir: string) =>
+  extractTar: (path: string, outputDir?: string) =>
     apiClient.post('/files/extract/tar', { path, outputDir }),
 };
 
