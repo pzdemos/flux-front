@@ -288,4 +288,23 @@ export const sslApi = {
   deleteCertificate: (domain: string) => apiClient.delete(`/ssl/certificates/${domain}`),
 };
 
+// ===== DNS Management API (Aliyun Alidns) =====
+export interface DnsRecordInput {
+  DomainName?: string;
+  RR: string;
+  Type: string;
+  Value: string;
+  TTL?: number;
+  Priority?: number;
+}
+
+export const dnsApi = {
+  getDomains: () => apiClient.get('/dns/domains'),
+  getRecords: (domain: string) => apiClient.get('/dns/records', { params: { domain } }),
+  addRecord: (data: DnsRecordInput) => apiClient.post('/dns/records', data),
+  updateRecord: (recordId: string, data: DnsRecordInput) => apiClient.put(`/dns/records/${recordId}`, data),
+  deleteRecord: (recordId: string, domain: string) =>
+    apiClient.delete(`/dns/records/${recordId}`, { params: { domain } }),
+};
+
 export default apiClient;
