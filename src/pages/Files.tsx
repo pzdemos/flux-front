@@ -210,7 +210,7 @@ export default function FilesPage() {
         }).catch(() => setCurrentRoot(null));
       }
     }
-  }, [settings?.files_root]);
+  }, [settings?.files_root, viewMode]);
 
   const loadFiles = useCallback(async (p: string) => {
     if (!currentRoot && viewMode !== 'node' && viewMode !== 'skill') {
