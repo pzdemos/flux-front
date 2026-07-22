@@ -4,6 +4,9 @@ import Header from './Header';
 import FilesPage from '@/pages/Files';
 import TerminalPage from '@/pages/Terminal';
 import DnsPage from '@/pages/Dns';
+import EcsInstancesPage from '@/pages/EcsInstances';
+import EcsSecurityGroupsPage from '@/pages/EcsSecurityGroups';
+import EcsDisksPage from '@/pages/EcsDisks';
 import NotificationContainer from '@/components/shared/NotificationContainer';
 import { useAppStore } from '@/stores/app';
 
@@ -25,6 +28,15 @@ export default function MainLayout() {
           </div>
           <div className={`absolute inset-0 ${activeModule === 'dns' ? '' : 'hidden'}`}>
             <DnsPage />
+          </div>
+          <div className={`absolute inset-0 ${activeModule === 'ecs' ? '' : 'hidden'}`}>
+            <EcsInstancesPage />
+          </div>
+          <div className={`absolute inset-0 ${activeModule === 'sg' ? '' : 'hidden'}`}>
+            <EcsSecurityGroupsPage />
+          </div>
+          <div className={`absolute inset-0 ${activeModule === 'disk' ? '' : 'hidden'}`}>
+            <EcsDisksPage />
           </div>
         </main>
       </div>

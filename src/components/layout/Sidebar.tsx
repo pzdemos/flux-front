@@ -8,12 +8,18 @@ import {
   Settings,
   Terminal,
   Globe,
+  Server,
+  Shield,
+  HardDrive,
 } from 'lucide-react';
 
 const modules = [
   { id: 'files' as const, label: '文件管理', icon: FolderOpen },
   { id: 'terminal' as const, label: '终端管理', icon: Terminal },
   { id: 'dns' as const, label: 'DNS解析', icon: Globe },
+  { id: 'ecs' as const, label: 'ECS实例', icon: Server },
+  { id: 'sg' as const, label: '安全组', icon: Shield },
+  { id: 'disk' as const, label: '云盘', icon: HardDrive },
 ];
 
 export default function Sidebar() {

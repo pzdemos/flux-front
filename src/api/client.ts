@@ -307,4 +307,116 @@ export const dnsApi = {
     apiClient.delete(`/dns/records/${recordId}`, { params: { domain } }),
 };
 
+// ===== ECS Management API (Aliyun ECS) =====
+const ECS_DEFAULT_REGION = 'cn-hangzhou';
+
+export interface EcsRegion {
+  RegionId: string;
+  RegionEndpoint: string;
+  LocalName: string;
+}
+
+export interface EcsInstance {
+  InstanceId: string;
+  InstanceName: string;
+  Status: string;
+  InstanceType: string;
+  RegionId: string;
+  ZoneId: string;
+  CPU: number;
+  Memory: number;
+  OSName: string;
+  ImageId: string;
+  HostName: string;
+  Description: string;
+  InstanceChargeType: string;
+  InstanceNetworkType: string;
+  PrivateIp: string | null;
+  PublicIp: string | null;
+  EipAddress: string | null;
+  SecurityGroupIds: string[];
+  CreationTime: string;
+  ExpiredTime: string;
+  IsSelf: boolean;
+}
+
+export interface EcsSecurityGroup {
+  SecurityGroupId: string;
+  SecurityGroupName: string;
+  Description: string;
+  VpcId: string;
+  RegionId: string;
+  SecurityGroupType: string;
+}
+
+export interface EcsSecurityGroupRule {
+  SecurityGroupRuleId?: string;
+  IpProtocol: string;
+  PortRange: string;
+  SourceCidrIp: string;
+  DestCidrIp: string;
+  Policy: string;
+  Priority: string;
+  Description: string;
+  Direction: string;
+  NicType: string;
+  CreateTime?: string;
+}
+
+export interface EcsDisk {
+  DiskId: string;
+  DiskName: string;
+  Description: string;
+  Size: number;
+  Category: string;
+  Type: string;
+  Status: string;
+  InstanceId: string;
+  Device: string;
+  DiskChargeType: string;
+  RegionId: string;
+  ZoneId: string;
+  CreationTime: string;
+  ExpiredTime: string;
+}
+
+export const ecsApi = {
+  // 实例
+  getRegions: () => apiClient.get('/ecs/regions'),
+  getInstances: (region: string = ECS_DEFAULT_REGION) =>
+    apiClient.get('/ecs/instances', { params: { region } }),
+  getInstance: (id: string, region: string = ECS_DEFAULT_REGION) =>
+    apiClient.get(`/ecs/instances/${id}`, { params: { region } }),
+  startInstance: (id: string, region: string = ECS_DEFAULT_REGION) =>
+    apiClient.post(`/ecs/instances/${id}/start`, null, { params: { region } }),
+  stopInstance: (id: string, region: string = ECS_DEFAULT_REGION, body?: { forceStop?: boolean; confirmQuit?: boolean }) =>
+    apiClient.post(`/ecs/instances/${id}/stop`, body || {}, { params: { region } }),
+  rebootInstance: (id: string, region: string = ECS_DEFAULT_REGION, body?: { forceStop?: boolean }) =>
+    apiClient.post(`/ecs/instances/${id}/reboot`, body || {}, { params: { region } }),
+
+  // 安全组
+  getSecurityGroups: (region: string = ECS_DEFAULT_REGION) =>
+    apiClient.get('/ecs/security-groups', { params: { region } }),
+  getSecurityGroupRules: (sgId: string, region: string = ECS_DEFAULT_REGION, direction: string = 'all') =>
+    apiClient.get(`/ecs/security-groups/${sgId}/rules`, { params: { region, direction } }),
+  addSecurityGroupRule: (
+    sgId: string,
+    data: { IpProtocol: string; PortRange: string; SourceCidrIp?: string; Policy: string; Priority?: string; Description?: string },
+    region: string = ECS_DEFAULT_REGION
+  ) => apiClient.post(`/ecs/security-groups/${sgId}/rules`, data, { params: { region } }),
+  deleteSecurityGroupRule: (
+    sgId: string,
+    data: { IpProtocol: string; PortRange: string; SourceCidrIp?: string; Policy: string; Priority?: string },
+    region: string = ECS_DEFAULT_REGION
+  ) => apiClient.delete(`/ecs/security-groups/${sgId}/rules`, { params: { region }, data }),
+
+  // 云盘
+  getDisks: (region: string = ECS_DEFAULT_REGION, instanceId?: string) =>
+    apiClient.get('/ecs/disks', { params: { region, instanceId } }),
+  attachDisk: (diskId: string, data: { instanceId: string; device?: string }, region: string = ECS_DEFAULT_REGION) =>
+    apiClient.post(`/ecs/disks/${diskId}/attach`, data, { params: { region } }),
+  detachDisk: (diskId: string, data: { instanceId: string }, region: string = ECS_DEFAULT_REGION) =>
+    apiClient.post(`/ecs/disks/${diskId}/detach`, data, { params: { region } }),
+};
+
 export default apiClient;
