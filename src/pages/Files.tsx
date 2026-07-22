@@ -54,6 +54,8 @@ export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [path, setPath] = useState('/');
   const [currentRoot, setCurrentRoot] = useState<string | null>(null);
+  // ref 镜像 currentRoot，避免 setRootAndLoad 里 setCurrentRoot 后立即调用 loadFiles 时的 stale closure
+  const currentRootRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -176,7 +178,7 @@ export default function FilesPage() {
   }, [currentRoot]);
 
   const loadFiles = useCallback(async (p: string) => {
-    if (!currentRoot && viewMode !== 'node' && viewMode !== 'skill') {
+    if (!currentRootRef.current && viewMode !== 'node' && viewMode !== 'skill') {
       // 根路径未配置，不加载文件列表
       setFiles([]);
       setPath('/');
@@ -216,7 +218,7 @@ export default function FilesPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentRoot, viewMode]);
+  }, [viewMode]);
 
   // 统一管理 root + path：viewMode 或 settings 相关字段变化时，重新设置后端 root、currentRoot、path
   // （合并了原本分散在两个 useEffect 里的 root 切换逻辑，避免相互覆盖的 race）
@@ -227,12 +229,14 @@ export default function FilesPage() {
       systemApi.setRoot(root)
         .then(() => {
           if (cancelled) return;
+          currentRootRef.current = root;
           setCurrentRoot(root);
           setPath(targetPath);
           loadFiles(targetPath);
         })
         .catch(() => {
           if (cancelled) return;
+          currentRootRef.current = null;
           setCurrentRoot(null);
         });
     };
@@ -254,9 +258,14 @@ export default function FilesPage() {
           if (configured && root) {
             setRootAndLoad(root, '/');
           } else {
+            currentRootRef.current = null;
             setCurrentRoot(null);
           }
-        }).catch(() => setCurrentRoot(null));
+        }).catch(() => {
+          if (cancelled) return;
+          currentRootRef.current = null;
+          setCurrentRoot(null);
+        });
       }
     }
 
@@ -603,7 +612,7 @@ export default function FilesPage() {
 
   // ===== View mode switcher (integrated into header) =====
   const viewButtons = [
-    { id: 'files' as const, label: '文件', icon: Folder },
+    { id: 'files' as const, label: '网站根目录', icon: Folder },
     { id: 'node' as const, label: 'node项目管理', icon: Server },
     { id: 'skill' as const, label: 'skill管理', icon: BookOpen },
     { id: 'trash' as const, label: '回收站', icon: Trash2 },
@@ -1145,7 +1154,7 @@ export default function FilesPage() {
 
                     {/* Icon - clickable to open */}
                     <div className="w-8 flex items-center justify-center cursor-pointer hover:bg-zinc-800/50 rounded transition-colors" onClick={() => navigate(file)}>
-                      {file.isDirectory ? <Folder className="w-5 h-5 text-amber-400" /> : <FileIcon className="w-5 h-5 text-zinc-400" />}
+                      {file.isDirectory ? <Folder className="w-5 h-5 text-amber-400" /> : <FileIcon className={`w-5 h-5 ${file.name.endsWith('.sh') ? 'text-red-400' : 'text-zinc-400'}`} />}
                     </div>
 
                     {/* Name - inline rename or display */}
@@ -1159,7 +1168,7 @@ export default function FilesPage() {
                       ) : (
                         <span className="flex items-center gap-1.5">
                           <span
-                            className="text-sm text-zinc-200 truncate cursor-pointer hover:text-white transition-colors"
+                            className={`text-sm truncate cursor-pointer transition-colors ${!file.isDirectory && file.name.endsWith('.sh') ? 'text-red-400 hover:text-red-300 font-medium' : 'text-zinc-200 hover:text-white'}`}
                             onClick={() => navigate(file)}
                           >{file.name}</span>
                           {file.isDirectory && file.isGitRepo && (
