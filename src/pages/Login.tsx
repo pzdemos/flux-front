@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '@/stores/auth';
 import { Eye, EyeOff, Loader2, AlertTriangle, Cpu, HardDrive, Network } from 'lucide-react';
-import { authApi } from '@/api/client';
 import type { AxiosError } from 'axios';
 
 export default function Login() {
@@ -93,12 +92,8 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await authApi.login(username, password);
-      if (res.data.token) {
-        login(res.data.token, username);
-        window.location.href = '/#/';
-        return;
-      }
+      await login(username, password);
+      window.location.href = '/#/';
     } catch (err: unknown) {
       const axiosErr = err as AxiosError<{ error?: string; message?: string }>;
       if (axiosErr.response?.status === 401) {

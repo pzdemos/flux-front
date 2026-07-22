@@ -427,3 +427,10 @@ export const ecsApi = {
 };
 
 export default apiClient;
+
+// ===== User Settings API =====
+export const userSettingsApi = {
+  get: () => apiClient.get('/user/settings'),
+  update: (settings: { files_root?: string; ecs_region?: string; sg_region?: string; disk_region?: string }) =>
+    apiClient.put('/user/settings', settings),
+};
