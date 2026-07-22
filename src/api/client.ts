@@ -378,6 +378,7 @@ export interface EcsDisk {
   ZoneId: string;
   CreationTime: string;
   ExpiredTime: string;
+  DeleteWithInstance?: boolean;
 }
 
 export const ecsApi = {
