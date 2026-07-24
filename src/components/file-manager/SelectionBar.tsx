@@ -7,7 +7,7 @@ import {
   X,
   Download,
   ClipboardCheck,
-  Unpack
+  ArchiveRestore
 } from 'lucide-react';
 
 interface ClipboardData {
@@ -103,7 +103,7 @@ export default function SelectionBar({
                   border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-500/50 hover:text-emerald-100
                   active:scale-95 transition-all duration-200"
               >
-                <Unpack className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                <ArchiveRestore className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                 <span>解压</span>
               </button>
             ) : (

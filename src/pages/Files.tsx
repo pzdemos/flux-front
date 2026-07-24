@@ -16,7 +16,7 @@ import FilePreviewDialog from '@/components/file-manager/FilePreviewDialog';
 import {
   Folder, File as FileIcon, ChevronRight, ChevronUp, ChevronDown, Home,
   RefreshCw, Search, Upload, FolderPlus, FilePlus,
-  Trash2, Edit3, ArrowUpDown, Loader2, WifiOff,
+  Trash2, Edit3, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
   FileArchive, Wrench, X, Check, Square, ClipboardCheck, Server, BookOpen,
   GitBranch, AlertTriangle, Link, Eye, Settings
