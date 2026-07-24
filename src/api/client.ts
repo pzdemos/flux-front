@@ -275,8 +275,10 @@ export const databaseApi = {
 
 export const nginxApi = {
   getStatus: () => apiClient.get('/nginx/status'),
-  getConfig: () => apiClient.get('/nginx/config'),
-  saveConfig: (config: string) => apiClient.post('/nginx/config', { config }),
+  listConfigs: () => apiClient.get('/nginx/configs'),
+  getConfig: (file: string) => apiClient.get('/nginx/config', { params: { file } }),
+  saveConfig: (file: string, content: string) => apiClient.post('/nginx/config', { file, content }),
+  testConfig: () => apiClient.post('/nginx/test'),
   reload: () => apiClient.post('/nginx/reload'),
   getLogs: (type: string, lines: number) => apiClient.get('/nginx/logs', { params: { type, lines } }),
 };
