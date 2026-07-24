@@ -11,6 +11,7 @@ const MODULE_TITLES: Record<string, string> = {
   ecs: 'ECS实例',
   sg: '安全组',
   disk: '云盘',
+  nginx: 'Nginx',
 };
 
 export default function Header() {

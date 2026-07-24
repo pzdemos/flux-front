@@ -13,6 +13,7 @@ import {
   Shield,
   HardDrive,
   UserCog,
+  Network,
 } from 'lucide-react';
 import UserManagementDialog from '@/components/file-manager/UserManagementDialog';
 
@@ -23,6 +24,7 @@ const modules = [
   { id: 'ecs' as const, label: 'ECS实例', icon: Server },
   { id: 'sg' as const, label: '安全组', icon: Shield },
   { id: 'disk' as const, label: '云盘', icon: HardDrive },
+  { id: 'nginx' as const, label: 'Nginx', icon: Network },
 ];
 
 export default function Sidebar() {

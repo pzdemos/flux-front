@@ -32,6 +32,7 @@ export default function App() {
           <Route path="ecs" element={null} />
           <Route path="sg" element={null} />
           <Route path="disk" element={null} />
+          <Route path="nginx" element={null} />
           <Route path="*" element={<Navigate to="files" replace />} />
         </Route>
       </Routes>

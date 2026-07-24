@@ -9,6 +9,7 @@ import DnsPage from '@/pages/Dns';
 import EcsInstancesPage from '@/pages/EcsInstances';
 import EcsSecurityGroupsPage from '@/pages/EcsSecurityGroups';
 import EcsDisksPage from '@/pages/EcsDisks';
+import NginxPage from '@/pages/Nginx';
 import NotificationContainer from '@/components/shared/NotificationContainer';
 import { useAppStore } from '@/stores/app';
 
@@ -19,6 +20,7 @@ const MODULE_ROUTES: Record<string, React.ComponentType<{ visible?: boolean }>> 
   ecs: EcsInstancesPage,
   sg: EcsSecurityGroupsPage,
   disk: EcsDisksPage,
+  nginx: NginxPage,
 };
 
 export default function MainLayout() {
