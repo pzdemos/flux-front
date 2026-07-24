@@ -59,7 +59,18 @@ export default function FilesPage() {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sortBy, setSortBy] = useState<'name' | 'size' | 'date'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'size' | 'date'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (col: 'name' | 'size' | 'date') => {
+    if (sortBy === col) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(col);
+      // name 默认升序，size/date 默认降序
+      setSortOrder(col === 'name' ? 'asc' : 'desc');
+    }
+  };
   const [editingFile, setEditingFile] = useState<FileItem | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dirNotFound, setDirNotFound] = useState(false);
@@ -396,9 +407,10 @@ export default function FilesPage() {
     .filter((f) => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      if (sortBy === 'size') return b.size - a.size;
-      return new Date(b.modified).getTime() - new Date(a.modified).getTime();
+      const dir = sortOrder === 'asc' ? 1 : -1;
+      if (sortBy === 'name') return a.name.localeCompare(b.name) * dir;
+      if (sortBy === 'size') return (a.size - b.size) * dir;
+      return (new Date(a.modified).getTime() - new Date(b.modified).getTime()) * dir;
     });
 
   // 最新修改时间（用于在文件名旁标记最新文件）
@@ -621,6 +633,14 @@ export default function FilesPage() {
   };
 
   const selectedPaths = Array.from(selected).map(name => path === '/' ? `/${name}` : `${path}/${name}`);
+
+  // 单选压缩文件时：让 SelectionBar/移动底栏显示「解压」而非「压缩」
+  const isCompressedName = (name: string) =>
+    /\.(zip|tar|tar\.gz|tgz)$/i.test(name);
+  const selectedSingleCompressed = selected.size === 1 && (() => {
+    const name = Array.from(selected)[0];
+    return !!name && isCompressedName(name);
+  })();
 
   // Paste functionality
   const handlePaste = async (paths: string[], mode: 'move' | 'copy', targetPath: string) => {
@@ -902,8 +922,6 @@ export default function FilesPage() {
                   </button>
                 )}
 
-                <button onClick={() => setSortBy(sortBy === 'name' ? 'date' : 'name')} className="hidden md:block p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white" title="切换排序"><ArrowUpDown className="w-4 h-4" /></button>
-
                 {/* New dropdown - PC */}
                 {!isMobile && (
                 <div className="relative" ref={newMenuRef}>
@@ -1158,6 +1176,15 @@ export default function FilesPage() {
                 clipboard={clipboard || undefined}
                 onPaste={clipboard ? () => handlePaste(clipboard.paths, clipboard.mode!, path) : undefined}
                 onClearClipboard={clearClipboard}
+                canExtract={selectedSingleCompressed}
+                onExtract={selectedSingleCompressed ? () => {
+                  const name = Array.from(selected)[0];
+                  const file = name ? files.find(f => f.name === name) : undefined;
+                  if (file) {
+                    setExtractFile(file);
+                    setSelected(new Set());
+                  }
+                } : undefined}
               />
             )}
 
@@ -1179,9 +1206,30 @@ export default function FilesPage() {
                 )}
               </button>
               <span></span>
-              <span>名称</span>
-              <span className="hidden md:block w-20 text-right">大小</span>
-              <span className="hidden md:block w-32 text-right">修改时间</span>
+              <button
+                onClick={() => toggleSort('name')}
+                className={`flex items-center gap-1 hover:text-white transition-colors ${sortBy === 'name' ? 'text-emerald-400' : ''}`}
+                title="按名称排序"
+              >
+                名称
+                {sortBy === 'name' && (sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => toggleSort('size')}
+                className={`hidden md:flex items-center gap-1 w-20 justify-end hover:text-white transition-colors ${sortBy === 'size' ? 'text-emerald-400' : ''}`}
+                title="按大小排序"
+              >
+                大小
+                {sortBy === 'size' && (sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => toggleSort('date')}
+                className={`hidden md:flex items-center gap-1 w-32 justify-end hover:text-white transition-colors ${sortBy === 'date' ? 'text-emerald-400' : ''}`}
+                title="按修改时间排序"
+              >
+                修改时间
+                {sortBy === 'date' && (sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+              </button>
               <span className="hidden md:block w-20 text-right">权限</span>
               <span className="hidden md:block w-8"></span>
             </div>
@@ -1300,9 +1348,25 @@ export default function FilesPage() {
                     <button onClick={() => setClipboard(selectedPaths, 'copy')} className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 active:scale-95 transition-all shrink-0">
                       <Copy className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">复制</span>
                     </button>
-                    <button onClick={() => setCompressFiles(selectedPaths)} className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 active:scale-95 transition-all shrink-0">
-                      <FileArchive className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">压缩</span>
-                    </button>
+                    {selectedSingleCompressed ? (
+                      <button
+                        onClick={() => {
+                          const name = Array.from(selected)[0];
+                          const file = name ? files.find(f => f.name === name) : undefined;
+                          if (file) {
+                            setExtractFile(file);
+                            setSelected(new Set());
+                          }
+                        }}
+                        className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 active:scale-95 transition-all shrink-0"
+                      >
+                        <FileArchive className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">解压</span>
+                      </button>
+                    ) : (
+                      <button onClick={() => setCompressFiles(selectedPaths)} className="group flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 active:scale-95 transition-all shrink-0">
+                        <FileArchive className="w-5 h-5 group-hover:scale-110 transition-transform" /><span className="text-[10px] font-medium">压缩</span>
+                      </button>
+                    )}
                     <button onClick={() => {
                       const name = Array.from(selected)[0];
                       if (name) { setRenaming(name); setRenameValue(name); }

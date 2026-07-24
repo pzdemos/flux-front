@@ -13,7 +13,15 @@ interface ExtractDialogProps {
 }
 
 export default function ExtractDialog({ filePath, fileName, currentPath, onClose, onSuccess }: ExtractDialogProps) {
-  const [outputDir, setOutputDir] = useState('');
+  // 默认填上压缩包名（去扩展名），用户可改可清空。留空 → 解压到 currentPath。
+  const [outputDir, setOutputDir] = useState(() => {
+    const stripped = fileName
+      .replace(/\.tar\.gz$/i, '')
+      .replace(/\.tgz$/i, '')
+      .replace(/\.tar$/i, '')
+      .replace(/\.zip$/i, '');
+    return stripped;
+  });
   const [loading, setLoading] = useState(false);
   const addNotification = useAppStore((s) => s.addNotification);
 
@@ -24,9 +32,9 @@ export default function ExtractDialog({ filePath, fileName, currentPath, onClose
     setLoading(true);
     try {
       if (isZip) {
-        await compressApi.extractZip(filePath, outputDir || undefined);
+        await compressApi.extractZip(filePath, outputDir.trim() || undefined);
       } else if (isTar) {
-        await compressApi.extractTar(filePath, outputDir || undefined);
+        await compressApi.extractTar(filePath, outputDir.trim() || undefined);
       } else {
         addNotification({ type: 'error', message: '不支持的压缩格式' });
         return;
@@ -64,7 +72,7 @@ export default function ExtractDialog({ filePath, fileName, currentPath, onClose
         <p className="text-sm text-zinc-400 mb-3 truncate">{fileName}</p>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-zinc-500 mb-1 block">解压到目录（留空则自动建同名文件夹，重名时加序号）</label>
+            <label className="text-xs text-zinc-500 mb-1 block">解压到的文件夹名（留空则直接解压到当前目录，重名时自动加序号）</label>
             <input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={currentPath}
               className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-white outline-none focus:border-emerald-500" autoFocus
               onKeyDown={(e) => e.key === 'Enter' && handleExtract()} />

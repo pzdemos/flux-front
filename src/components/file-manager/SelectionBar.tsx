@@ -6,7 +6,8 @@ import {
   Edit3,
   X,
   Download,
-  ClipboardCheck
+  ClipboardCheck,
+  Unpack
 } from 'lucide-react';
 
 interface ClipboardData {
@@ -26,6 +27,9 @@ interface SelectionBarProps {
   clipboard?: ClipboardData | null;
   onPaste?: () => void;
   onClearClipboard?: () => void;
+  /** 单选且选中的是压缩文件时显示「解压」而非「压缩」 */
+  canExtract?: boolean;
+  onExtract?: () => void;
 }
 
 export default function SelectionBar({
@@ -40,6 +44,8 @@ export default function SelectionBar({
   clipboard,
   onPaste,
   onClearClipboard,
+  canExtract,
+  onExtract,
 }: SelectionBarProps) {
   const hasClipboard = clipboard && clipboard.mode && onPaste && onClearClipboard;
   const hasSelection = count > 0;
@@ -90,15 +96,27 @@ export default function SelectionBar({
               <Download className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
               <span>下载</span>
             </button>
-            <button
-              onClick={onCompress}
-              className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-slate-200 text-xs font-medium
-                border border-white/10 hover:bg-white/10 hover:border-white/20 hover:text-white
-                active:scale-95 transition-all duration-200"
-            >
-              <FileArchive className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-              <span>压缩</span>
-            </button>
+            {canExtract && onExtract ? (
+              <button
+                onClick={onExtract}
+                className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-200 text-xs font-medium
+                  border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-500/50 hover:text-emerald-100
+                  active:scale-95 transition-all duration-200"
+              >
+                <Unpack className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                <span>解压</span>
+              </button>
+            ) : (
+              <button
+                onClick={onCompress}
+                className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-slate-200 text-xs font-medium
+                  border border-white/10 hover:bg-white/10 hover:border-white/20 hover:text-white
+                  active:scale-95 transition-all duration-200"
+              >
+                <FileArchive className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                <span>压缩</span>
+              </button>
+            )}
             <button
               onClick={onRename}
               className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-slate-200 text-xs font-medium
