@@ -84,7 +84,9 @@ export default function NginxPage() {
   const loadConfigs = useCallback(async () => {
     try {
       const res = await nginxApi.listConfigs();
-      setConfigs(res.data || []);
+      const data = res.data;
+      const list = Array.isArray(data) ? data : (data?.data || []);
+      setConfigs(list);
     } catch (err: unknown) {
       const axiosErr = err as AxiosError<{ error?: string }>;
       addNotification({ type: 'error', message: `配置列表加载失败: ${axiosErr.response?.data?.error || '未知错误'}` });
@@ -95,8 +97,11 @@ export default function NginxPage() {
     setLoadingFile(true);
     try {
       const res = await nginxApi.getConfig(file);
-      setContent(res.data.content || '');
-      setOriginalContent(res.data.content || '');
+      const data = res.data;
+      const obj = (data && (data as any).data) ? (data as any).data : data;
+      const content = typeof obj?.content === 'string' ? obj.content : '';
+      setContent(content);
+      setOriginalContent(content);
       setCurrentFile(file);
     } catch (err: unknown) {
       const axiosErr = err as AxiosError<{ error?: string }>;
@@ -109,7 +114,9 @@ export default function NginxPage() {
   const loadLogs = useCallback(async () => {
     try {
       const res = await nginxApi.getLogs(logType, logLines);
-      setLogs(res.data.logs || '');
+      const data = res.data;
+      const obj = (data && (data as any).data) ? (data as any).data : data;
+      setLogs(typeof obj?.logs === 'string' ? obj.logs : '');
     } catch (err: unknown) {
       const axiosErr = err as AxiosError<{ error?: string }>;
       addNotification({ type: 'error', message: `日志加载失败: ${axiosErr.response?.data?.error || '未知错误'}` });
