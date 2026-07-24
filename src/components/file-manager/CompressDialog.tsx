@@ -10,9 +10,16 @@ interface CompressDialogProps {
   onSuccess: () => void;
 }
 
+/** 单选 → 用文件/文件夹名（去扩展名）；多选 → 回退到 archive */
+function defaultArchiveName(paths: string[]): string {
+  if (paths.length !== 1) return 'archive';
+  const last = paths[0].split('/').filter(Boolean).pop() || 'archive';
+  return last.replace(/\.tar\.gz$/i, '').replace(/\.[^.]+$/, '') || last;
+}
+
 export default function CompressDialog({ selectedPaths, onClose, onSuccess }: CompressDialogProps) {
   const [format, setFormat] = useState<'zip' | 'tar'>('zip');
-  const [outputName, setOutputName] = useState('archive');
+  const [outputName, setOutputName] = useState(() => defaultArchiveName(selectedPaths));
   const [loading, setLoading] = useState(false);
   const addNotification = useAppStore((s) => s.addNotification);
 
