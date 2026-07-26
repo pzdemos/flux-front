@@ -8,7 +8,8 @@ import {
   Scissors,
   Copy,
   FileArchive,
-  Trash2
+  Trash2,
+  Code
 } from 'lucide-react';
 import {
   Sheet,
@@ -29,6 +30,10 @@ export default function ActionSheet({ open, onClose, file, onAction }: ActionShe
 
   const actions = [
     { id: 'open', label: file.isDirectory ? '打开' : '编辑', icon: file.isDirectory ? Folder : FileIcon, color: 'text-zinc-400' },
+    ...(file.isDirectory
+      ? [{ id: 'editor-open', label: '在 IDE 中打开', icon: Code, color: 'text-emerald-400' }]
+      : []
+    ),
     { id: 'download', label: '下载', icon: Download, color: 'text-zinc-400' },
     { id: 'rename', label: '重命名', icon: Edit3, color: 'text-zinc-400' },
     { id: 'chmod', label: '修改权限', icon: Lock, color: 'text-zinc-400' },

@@ -220,6 +220,10 @@ export const gitApi = {
     apiClient.get('/files/git/diff', { params: { path, hash } }),
   file: (path: string, hash: string, file: string) =>
     apiClient.get('/files/git/file', { params: { path, hash, file } }),
+  workingStatus: (path: string) =>
+    apiClient.get('/files/git/working-status', { params: { path } }),
+  workingDiff: (path: string) =>
+    apiClient.get('/files/git/working-diff', { params: { path } }),
 };
 
 // ===== System Tools API =====

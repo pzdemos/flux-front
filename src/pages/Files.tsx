@@ -1738,6 +1738,9 @@ export default function FilesPage() {
             case 'open':
               navigate(actionSheetFile);
               break;
+            case 'editor-open':
+              window.location.hash = `/ide?path=${encodeURIComponent(actionSheetFile.path)}`;
+              break;
             case 'download':
               handleDownload(actionSheetFile);
               break;

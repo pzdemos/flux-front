@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, HashRouter } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
 import MainLayout from '@/components/layout/MainLayout';
 import Login from '@/pages/Login';
+import IDE from '@/pages/IDE';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -17,6 +18,14 @@ export default function App() {
     <HashRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route
+          path="/ide"
+          element={
+            <ProtectedRoute>
+              <IDE />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/"
           element={

@@ -165,13 +165,14 @@ function ExpandButton({ dir, onClick, disabled }: { dir: 'up' | 'down'; onClick:
   );
 }
 
-function HunkView({ hunk, repoPath, hash, file, isAdded, isDeleted }: {
+function HunkView({ hunk, repoPath, hash, file, isAdded, isDeleted, disableExpand }: {
   hunk: DiffHunk;
   repoPath: string;
   hash: string;
   file: string;
   isAdded: boolean;
   isDeleted: boolean;
+  disableExpand?: boolean;
 }) {
   // 已展开的上方/下方行数（渐进式：每次 +20）
   const [expandedTop, setExpandedTop] = useState(0);
@@ -257,8 +258,8 @@ function HunkView({ hunk, repoPath, hash, file, isAdded, isDeleted }: {
   }, [expandedBottom, newFileLines, hunkNewEnd]);
 
   // added 文件没有 "上方"（old 不存在），deleted 文件没有 "下方"（new 不存在）
-  const canExpandTop = !isAdded && topRemaining > 0;
-  const canExpandBottom = !isDeleted && bottomRemaining === null || (bottomRemaining !== null && bottomRemaining > 0);
+  const canExpandTop = !disableExpand && !isAdded && topRemaining > 0;
+  const canExpandBottom = !disableExpand && (!isDeleted && bottomRemaining === null || (bottomRemaining !== null && bottomRemaining > 0));
 
   return (
     <div className="border-b border-zinc-800/50 last:border-b-0">
@@ -292,7 +293,7 @@ function HunkView({ hunk, repoPath, hash, file, isAdded, isDeleted }: {
   );
 }
 
-function FileBlock({ file, repoPath, hash }: { file: DiffFile; repoPath: string; hash: string }) {
+function FileBlock({ file, repoPath, hash, disableExpand }: { file: DiffFile; repoPath: string; hash: string; disableExpand?: boolean }) {
   const [collapsed, setCollapsed] = useState(false);
   const Meta = statusMeta(file.status);
   const Icon = Meta.icon;
@@ -327,6 +328,7 @@ function FileBlock({ file, repoPath, hash }: { file: DiffFile; repoPath: string;
               file={file.newPath}
               isAdded={isAdded}
               isDeleted={isDeleted}
+              disableExpand={disableExpand}
             />
           ))}
         </div>
@@ -338,7 +340,7 @@ function FileBlock({ file, repoPath, hash }: { file: DiffFile; repoPath: string;
   );
 }
 
-export default function GitDiffView({ patch, repoPath, hash }: { patch: string; repoPath: string; hash: string }) {
+export default function GitDiffView({ patch, repoPath, hash, disableExpand }: { patch: string; repoPath: string; hash: string; disableExpand?: boolean }) {
   const files = useMemo(() => parseDiff(patch), [patch]);
   const totals = useMemo(
     () => files.reduce((acc, f) => ({ a: acc.a + f.additions, d: acc.d + f.deletions }), { a: 0, d: 0 }),
@@ -359,7 +361,7 @@ export default function GitDiffView({ patch, repoPath, hash }: { patch: string; 
         </span>
       </div>
       {files.map((file, i) => (
-        <FileBlock key={i} file={file} repoPath={repoPath} hash={hash} />
+        <FileBlock key={i} file={file} repoPath={repoPath} hash={hash} disableExpand={disableExpand} />
       ))}
     </div>
   );
