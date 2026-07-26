@@ -57,6 +57,8 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
 
   const [mobileView, setMobileView] = useState<MobileView>('tree');
   const [refreshKey, setRefreshKey] = useState(0);
+  // Git 面板的独立刷新 key：保存/commit/stage 后触发，让 GitPanel 重新拉数据
+  const [gitRefreshKey, setGitRefreshKey] = useState(0);
   const [clipboard, setClipboard] = useState<ClipboardData | null>(null);
   const [dialog, setDialog] = useState<DialogResult>(null);
   const [busy, setBusy] = useState(false);
@@ -92,6 +94,13 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
 
   const refreshAll = useCallback(() => {
     setRefreshKey(k => k + 1);
+    setGitRefreshKey(k => k + 1);
+    loadGitStatus();
+  }, [loadGitStatus]);
+
+  // 仅刷新 git（不重拉文件树）：保存/commit/stage 后用
+  const refreshGit = useCallback(() => {
+    setGitRefreshKey(k => k + 1);
     loadGitStatus();
   }, [loadGitStatus]);
 
@@ -489,6 +498,7 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
               loadError={contentErrors[activeTab.path] ?? null}
               isDirty={dirtySet.has(activeTab.path)}
               onDirtyChange={(d) => handleDirtyChange(activeTab.path, d)}
+              onSaved={refreshGit}
             />
           </div>
         </>
@@ -528,7 +538,7 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
           </div>
           {mobileView === 'git' && isGitRepo && (
             <div className="absolute inset-0">
-              <GitPanel repoPath={path} />
+              <GitPanel repoPath={path} refreshKey={gitRefreshKey} />
             </div>
           )}
         </div>
@@ -555,7 +565,7 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
             </div>
             {gitPanelOpen && (
               <div className="h-full min-w-0">
-                <GitPanel repoPath={path} />
+                <GitPanel repoPath={path} refreshKey={gitRefreshKey} />
               </div>
             )}
           </div>

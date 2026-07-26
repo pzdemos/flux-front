@@ -224,6 +224,14 @@ export const gitApi = {
     apiClient.get('/files/git/working-status', { params: { path } }),
   workingDiff: (path: string) =>
     apiClient.get('/files/git/working-diff', { params: { path } }),
+  stage: (path: string, files?: string[]) =>
+    apiClient.post('/files/git/stage', { path, files }),
+  unstage: (path: string, files?: string[]) =>
+    apiClient.post('/files/git/unstage', { path, files }),
+  commit: (path: string, message: string) =>
+    apiClient.post('/files/git/commit', { path, message }),
+  branch: (path: string) =>
+    apiClient.get('/files/git/branch', { params: { path } }),
 };
 
 // ===== System Tools API =====

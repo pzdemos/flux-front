@@ -36,6 +36,7 @@ interface EditorPaneProps {
   loadError: string | null;
   isDirty: boolean;
   onDirtyChange: (dirty: boolean) => void;
+  onSaved: () => void;
 }
 
 /**
@@ -47,7 +48,7 @@ interface EditorPaneProps {
  * - dirty 真相在外部 dirtySet，本组件通过 isDirty prop 接收
  */
 export default function EditorPane({
-  filePath, fileName, initialContent, loading, loadError, isDirty, onDirtyChange,
+  filePath, fileName, initialContent, loading, loadError, isDirty, onDirtyChange, onSaved,
 }: EditorPaneProps) {
   const [saving, setSaving] = useState(false);
   type EditorOnMountParam = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
@@ -74,6 +75,7 @@ export default function EditorPane({
       await fileApi.write(filePath, contentRef.current, 'utf-8');
       onDirtyChange(false);
       addNotification({ type: 'success', message: `${fileName} 已保存` });
+      onSaved();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '保存失败';
       addNotification({ type: 'error', message: `保存失败: ${msg}` });
@@ -81,7 +83,7 @@ export default function EditorPane({
       savingRef.current = false;
       setSaving(false);
     }
-  }, [isEditable, isDirty, filePath, fileName, onDirtyChange, addNotification]);
+  }, [isEditable, isDirty, filePath, fileName, onDirtyChange, onSaved, addNotification]);
 
   // Ctrl/Cmd+S 触发保存
   useEffect(() => {
