@@ -31,64 +31,48 @@ function isEditableFile(name: string): boolean {
 interface EditorPaneProps {
   filePath: string;
   fileName: string;
-  active: boolean;
+  initialContent: string;
+  loading: boolean;
+  loadError: string | null;
+  isDirty: boolean;
   onDirtyChange: (dirty: boolean) => void;
 }
 
-export default function EditorPane({ filePath, fileName, active, onDirtyChange }: EditorPaneProps) {
-  // initialContent 仅在文件首次加载时用作 Monaco 的 defaultValue；
-  // 之后 Monaco 完全非受控，避免受控 value 打断 IME、清空撤销栈
-  const [initialContent, setInitialContent] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * 单实例 EditorPane，跟随 activePath 渲染。
+ * 关键设计：
+ * - 用 path={filePath} 让 monaco 内部按 URI 缓存 model
+ * - 切 Tab 时 monaco 自动 setModel，不卸载 Editor，避免 Canceled 错误
+ * - 内容用 defaultValue（非受控），避免回写打断 IME
+ * - dirty 真相在外部 dirtySet，本组件通过 isDirty prop 接收
+ */
+export default function EditorPane({
+  filePath, fileName, initialContent, loading, loadError, isDirty, onDirtyChange,
+}: EditorPaneProps) {
   const [saving, setSaving] = useState(false);
   type EditorOnMountParam = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
   const editorRef = useRef<EditorOnMountParam | null>(null);
   const addNotification = useAppStore((s) => s.addNotification);
 
-  // refs 让全局 Ctrl+S handler 拿到最新值，不依赖重绑定
-  const dirtyRef = useRef(false);
-  const contentRef = useRef('');
+  // contentRef 跟随当前文件最新内容（Monaco onChange 同步）
+  const contentRef = useRef(initialContent);
+  // savingRef 让 Ctrl+S handler 拿到最新状态
   const savingRef = useRef(false);
 
   const isEditable = isEditableFile(fileName);
 
-  const markDirty = useCallback((val: boolean) => {
-    dirtyRef.current = val;
-    onDirtyChange(val);
-  }, [onDirtyChange]);
-
-  const loadContent = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await fileApi.read(filePath);
-      const data = res.data as { content?: string };
-      const text = typeof data.content === 'string'
-        ? data.content
-        : JSON.stringify(data.content ?? data, null, 2);
-      contentRef.current = text;
-      setInitialContent(text);
-      markDirty(false);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '无法读取文件';
-      addNotification({ type: 'error', message: `读取失败: ${msg}` });
-      setLoadError(msg);
-      setInitialContent(`// 无法读取文件: ${filePath}\n// 错误: ${msg}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [filePath, addNotification, markDirty]);
-
-  useEffect(() => { loadContent(); }, [loadContent]);
+  // 文件切换时同步 contentRef（initialContent 是父组件预加载好的）
+  useEffect(() => {
+    contentRef.current = initialContent;
+  }, [filePath, initialContent]);
 
   const handleSave = useCallback(async () => {
-    if (!isEditable || !dirtyRef.current || savingRef.current) return;
+    if (!isEditable || !isDirty || savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
     try {
       await fileApi.write(filePath, contentRef.current, 'utf-8');
-      markDirty(false);
+      onDirtyChange(false);
       addNotification({ type: 'success', message: `${fileName} 已保存` });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '保存失败';
@@ -97,11 +81,10 @@ export default function EditorPane({ filePath, fileName, active, onDirtyChange }
       savingRef.current = false;
       setSaving(false);
     }
-  }, [filePath, fileName, isEditable, addNotification, markDirty]);
+  }, [isEditable, isDirty, filePath, fileName, onDirtyChange, addNotification]);
 
-  // 仅 active Tab 接管 Ctrl+S
+  // Ctrl/Cmd+S 触发保存
   useEffect(() => {
-    if (!active) return;
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
@@ -110,41 +93,15 @@ export default function EditorPane({ filePath, fileName, active, onDirtyChange }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [active, handleSave]);
-
-  // active 切换时强制重排：Monaco 在 hidden(display:none) 容器里挂载时
-  // 拿不到尺寸，从 hidden → visible 切换必须手动 layout()，否则点击不进、显示错位
-  useEffect(() => {
-    if (!active) return;
-    const editor = editorRef.current;
-    if (!editor) return;
-    const raf1 = requestAnimationFrame(() => {
-      editor.layout();
-      editor.focus();
-    });
-    // 第二次保险：等 CSS 完全应用后再 layout 一次
-    const raf2 = requestAnimationFrame(() => {
-      editor.layout();
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
-  }, [active]);
+  }, [handleSave]);
 
   const handleEditorMount = (editor: EditorOnMountParam) => {
     editorRef.current = editor;
-    if (active) {
-      // mount 后下一帧 layout，确保拿到真实尺寸
-      requestAnimationFrame(() => {
-        editor.layout();
-        editor.focus();
-      });
-    }
+    editor.focus();
   };
 
   return (
-    <div className={`absolute inset-0 flex flex-col bg-zinc-900 ${active ? '' : 'invisible pointer-events-none'}`}>
+    <div className="absolute inset-0 flex flex-col bg-zinc-900">
       {saving && (
         <div className="absolute top-2 right-4 z-10 text-xs text-emerald-400 flex items-center gap-1">
           <Loader2 className="w-3 h-3 animate-spin" /> 保存中...
@@ -156,14 +113,14 @@ export default function EditorPane({ filePath, fileName, active, onDirtyChange }
         </div>
       ) : isEditable ? (
         <Editor
-          key={filePath}
+          path={filePath}
           language={detectLanguage(fileName)}
-          defaultValue={initialContent ?? ''}
+          defaultValue={initialContent}
           theme="vs-dark"
           onMount={handleEditorMount}
           onChange={(val) => {
             contentRef.current = val || '';
-            if (!dirtyRef.current) markDirty(true);
+            if (!isDirty) onDirtyChange(true);
           }}
           options={{
             fontSize: 13,

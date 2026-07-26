@@ -45,6 +45,10 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   const [tabs, setTabs] = useState<OpenTab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [dirtySet, setDirtySet] = useState<Set<string>>(new Set());
+  // 文件初始内容缓存（path → content），打开时预加载，切换 Tab 时立即同步给 Editor
+  const [contents, setContents] = useState<Record<string, string>>({});
+  const [contentErrors, setContentErrors] = useState<Record<string, string | null>>({});
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
 
   const [gitStatus, setGitStatus] = useState<GitStatusMap | null>(null);
   const [isGitRepo, setIsGitRepo] = useState(false);
@@ -62,6 +66,9 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   tabsRef.current = tabs;
   const dirtyRef = useRef(dirtySet);
   dirtyRef.current = dirtySet;
+
+  // ===== 当前激活的 Tab =====
+  const activeTab = activePath ? tabs.find(t => t.path === activePath) ?? null : null;
 
   // ===== Git 状态加载 =====
   const loadGitStatus = useCallback(async () => {
@@ -88,6 +95,31 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
     loadGitStatus();
   }, [loadGitStatus]);
 
+  // ===== 文件内容加载 =====
+  const loadFileContent = useCallback(async (filePath: string) => {
+    if (filePath in contents || loadingPaths.has(filePath)) return;
+    setLoadingPaths(prev => new Set(prev).add(filePath));
+    try {
+      const res = await fileApi.read(filePath);
+      const data = res.data as { content?: string };
+      const text = typeof data.content === 'string'
+        ? data.content
+        : JSON.stringify(data.content ?? data, null, 2);
+      setContents(prev => ({ ...prev, [filePath]: text }));
+      setContentErrors(prev => ({ ...prev, [filePath]: null }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '读取失败';
+      setContentErrors(prev => ({ ...prev, [filePath]: msg }));
+      addNotification({ type: 'error', message: `读取失败: ${msg}` });
+    } finally {
+      setLoadingPaths(prev => {
+        const next = new Set(prev);
+        next.delete(filePath);
+        return next;
+      });
+    }
+  }, [contents, loadingPaths, addNotification]);
+
   // ===== Tab 管理 =====
   const openFile = useCallback((file: FileItem) => {
     setTabs(prev => {
@@ -95,8 +127,9 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
       return [...prev, { path: file.path, name: file.name }];
     });
     setActivePath(file.path);
+    void loadFileContent(file.path);
     if (isMobile) setMobileView('editor');
-  }, [isMobile]);
+  }, [isMobile, loadFileContent]);
 
   const closeTab = useCallback((filePath: string, skipConfirm = false) => {
     if (!skipConfirm && dirtyRef.current.has(filePath)) {
@@ -114,6 +147,19 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
       if (!prev.has(filePath)) return prev;
       const next = new Set(prev);
       next.delete(filePath);
+      return next;
+    });
+    // 清理内容缓存：下次重新打开会重新加载最新内容
+    setContents(prev => {
+      if (!(filePath in prev)) return prev;
+      const next = { ...prev };
+      delete next[filePath];
+      return next;
+    });
+    setContentErrors(prev => {
+      if (!(filePath in prev)) return prev;
+      const next = { ...prev };
+      delete next[filePath];
       return next;
     });
     return true;
@@ -144,6 +190,20 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
       next.add(newPath);
       return next;
     });
+    setContents(prev => {
+      if (!(oldPath in prev)) return prev;
+      const next = { ...prev };
+      next[newPath] = next[oldPath];
+      delete next[oldPath];
+      return next;
+    });
+    setContentErrors(prev => {
+      if (!(oldPath in prev)) return prev;
+      const next = { ...prev };
+      next[newPath] = next[oldPath];
+      delete next[oldPath];
+      return next;
+    });
   }, []);
 
   // 替换路径前缀（用于移动目录）
@@ -166,6 +226,27 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
         if (p === oldPrefix) { next.add(newPrefix); changed = true; }
         else if (p.startsWith(oldPrefix + '/')) { next.add(newPrefix + p.slice(oldPrefix.length)); changed = true; }
         else next.add(p);
+      });
+      return changed ? next : prev;
+    });
+    // 同步内容缓存：把旧前缀的初始内容搬到新前缀，旧 key 清掉
+    setContents(prev => {
+      let changed = false;
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([p, v]) => {
+        if (p === oldPrefix) { next[newPrefix] = v; changed = true; }
+        else if (p.startsWith(oldPrefix + '/')) { next[newPrefix + p.slice(oldPrefix.length)] = v; changed = true; }
+        else next[p] = v;
+      });
+      return changed ? next : prev;
+    });
+    setContentErrors(prev => {
+      let changed = false;
+      const next: Record<string, string | null> = {};
+      Object.entries(prev).forEach(([p, v]) => {
+        if (p === oldPrefix) { next[newPrefix] = v; changed = true; }
+        else if (p.startsWith(oldPrefix + '/')) { next[newPrefix + p.slice(oldPrefix.length)] = v; changed = true; }
+        else next[p] = v;
       });
       return changed ? next : prev;
     });
@@ -223,6 +304,10 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   const doPaste = useCallback(async (clip: ClipboardData, targetDir: string) => {
     const sourceName = basename(clip.path);
     const targetPath = joinPath(targetDir, sourceName);
+    if (clip.mode === 'move' && dirtyRef.current.has(clip.path)) {
+      addNotification({ type: 'error', message: `请先保存 ${sourceName} 再移动` });
+      return;
+    }
     setBusy(true);
     try {
       if (clip.mode === 'copy') {
@@ -250,6 +335,11 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   }, [addNotification, rebaseTabs, refreshAll]);
 
   const doMoveFiles = useCallback(async (sources: string[], targetDir: string) => {
+    const dirtyHit = sources.find(s => dirtyRef.current.has(s));
+    if (dirtyHit) {
+      addNotification({ type: 'error', message: `请先保存 ${basename(dirtyHit)} 再移动` });
+      return;
+    }
     setBusy(true);
     try {
       for (const src of sources) {
@@ -303,6 +393,11 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   }, [addNotification, refreshAll]);
 
   const doRename = useCallback(async (file: FileItem, newName: string) => {
+    if (dirtyRef.current.has(file.path)) {
+      addNotification({ type: 'error', message: '请先保存文件再重命名（避免丢失编辑）' });
+      setDialog(null);
+      return;
+    }
     setBusy(true);
     try {
       await fileApi.rename(file.path, newName);
@@ -380,21 +475,21 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
 
   const editorArea = (
     <>
-      {tabs.length === 0 ? (
+      {tabs.length === 0 || !activeTab ? (
         <EmptyState />
       ) : (
         <>
           <EditorTabs tabs={tabs} activePath={activePath} dirtySet={dirtySet} onSelect={setActivePath} onClose={(p) => closeTab(p)} />
           <div className="flex-1 min-h-0 relative">
-            {tabs.map(tab => (
-              <EditorPane
-                key={tab.path}
-                filePath={tab.path}
-                fileName={tab.name}
-                active={tab.path === activePath}
-                onDirtyChange={(d) => handleDirtyChange(tab.path, d)}
-              />
-            ))}
+            <EditorPane
+              filePath={activeTab.path}
+              fileName={activeTab.name}
+              initialContent={contents[activeTab.path] ?? ''}
+              loading={loadingPaths.has(activeTab.path) && !(activeTab.path in contents)}
+              loadError={contentErrors[activeTab.path] ?? null}
+              isDirty={dirtySet.has(activeTab.path)}
+              onDirtyChange={(d) => handleDirtyChange(activeTab.path, d)}
+            />
           </div>
         </>
       )}
