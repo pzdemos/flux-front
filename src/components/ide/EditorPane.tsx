@@ -36,7 +36,10 @@ interface EditorPaneProps {
 }
 
 export default function EditorPane({ filePath, fileName, active, onDirtyChange }: EditorPaneProps) {
-  const [content, setContent] = useState('');
+  // initialContent 仅在文件首次加载时用作 Monaco 的 defaultValue；
+  // 之后 Monaco 完全非受控，避免受控 value 打断 IME、清空撤销栈
+  const [initialContent, setInitialContent] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   type EditorOnMountParam = Parameters<NonNullable<Parameters<typeof Editor>[0]['onMount']>>[0];
@@ -57,19 +60,21 @@ export default function EditorPane({ filePath, fileName, active, onDirtyChange }
 
   const loadContent = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fileApi.read(filePath);
       const data = res.data as { content?: string };
       const text = typeof data.content === 'string'
         ? data.content
         : JSON.stringify(data.content ?? data, null, 2);
-      setContent(text);
       contentRef.current = text;
+      setInitialContent(text);
       markDirty(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '无法读取文件';
       addNotification({ type: 'error', message: `读取失败: ${msg}` });
-      setContent(`// 无法读取文件: ${filePath}\n// 错误: ${msg}`);
+      setLoadError(msg);
+      setInitialContent(`// 无法读取文件: ${filePath}\n// 错误: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -151,16 +156,15 @@ export default function EditorPane({ filePath, fileName, active, onDirtyChange }
         </div>
       ) : isEditable ? (
         <Editor
+          key={filePath}
           language={detectLanguage(fileName)}
-          value={content}
-          onChange={(val) => {
-            const next = val || '';
-            contentRef.current = next;
-            setContent(next);
-            if (!dirtyRef.current) markDirty(true);
-          }}
+          defaultValue={initialContent ?? ''}
           theme="vs-dark"
           onMount={handleEditorMount}
+          onChange={(val) => {
+            contentRef.current = val || '';
+            if (!dirtyRef.current) markDirty(true);
+          }}
           options={{
             fontSize: 13,
             fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -179,8 +183,9 @@ export default function EditorPane({ filePath, fileName, active, onDirtyChange }
           <div className="flex items-center gap-2 mb-4 text-zinc-500">
             <Lock className="w-4 h-4" />
             <span>此文件为只读预览</span>
+            {loadError && <span className="text-rose-400 ml-2">· {loadError}</span>}
           </div>
-          {content}
+          <pre className="whitespace-pre-wrap">{initialContent}</pre>
         </div>
       )}
     </div>
