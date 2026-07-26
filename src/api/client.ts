@@ -232,6 +232,8 @@ export const gitApi = {
     apiClient.post('/files/git/commit', { path, message }),
   branch: (path: string) =>
     apiClient.get('/files/git/branch', { params: { path } }),
+  fileDiff: (path: string, file: string) =>
+    apiClient.get('/files/git/file-diff', { params: { path, file } }),
 };
 
 // ===== System Tools API =====

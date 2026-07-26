@@ -107,3 +107,29 @@
     touch-action: manipulation;
   }
 }
+
+/* ===== Monaco Git Gutter Decorations =====
+   编辑器行号旁的彩色条纹：绿=新增，蓝=修改，红=删除 */
+.monaco-editor .git-added-line {
+  background: rgba(46, 160, 67, 0.18) !important;
+}
+.monaco-editor .git-modified-line {
+  background: rgba(38, 116, 255, 0.18) !important;
+}
+.monaco-editor .git-added-glyph {
+  background: #2ea043;
+  width: 3px !important;
+  margin-left: 4px;
+}
+.monaco-editor .git-modified-glyph {
+  background: #2674ff;
+  width: 3px !important;
+  margin-left: 4px;
+}
+.monaco-editor .git-removed-glyph {
+  background: #f85149;
+  width: 3px !important;
+  margin-left: 4px;
+  height: 4px !important;
+  margin-top: calc(50% - 2px) !important;
+}

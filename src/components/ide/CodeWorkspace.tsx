@@ -37,6 +37,13 @@ function isAncestorOrSelf(maybeChild: string, ancestor: string): boolean {
   return maybeChild === ancestor || maybeChild.startsWith(ancestor + '/');
 }
 
+// 把 IDE 内的绝对路径（如 /flux-front/src/App.tsx）转成相对 repo 根的路径
+// path 是 IDE 根（也是 repo 根，如 /flux-front）
+function relToRepo(filePath: string, rootPath: string): string {
+  const rel = filePath.startsWith(rootPath) ? filePath.slice(rootPath.length) : filePath;
+  return rel.replace(/^\/+/, '');
+}
+
 export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   const navigate = useNavigate();
   const isMobile = useAppStore((s) => s.isMobile);
@@ -497,6 +504,9 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
               loading={loadingPaths.has(activeTab.path) && !(activeTab.path in contents)}
               loadError={contentErrors[activeTab.path] ?? null}
               isDirty={dirtySet.has(activeTab.path)}
+              repoPath={isGitRepo ? path : undefined}
+              repoRelFile={isGitRepo ? relToRepo(activeTab.path, path) : undefined}
+              gitRefreshKey={gitRefreshKey}
               onDirtyChange={(d) => handleDirtyChange(activeTab.path, d)}
               onSaved={refreshGit}
             />
