@@ -384,7 +384,7 @@ function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotif
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [selected, setSelected] = useState<GitCommit | null>(null);
   const [diffCache, setDiffCache] = useState<Record<string, string>>({});
   const [diffLoading, setDiffLoading] = useState(false);
 
@@ -407,14 +407,13 @@ function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotif
 
   useEffect(() => { loadCommits(1, false); }, [loadCommits]);
 
-  const toggleDiff = async (hash: string) => {
-    if (expanded === hash) { setExpanded(null); return; }
-    setExpanded(hash);
-    if (diffCache[hash]) return;
+  const openCommit = async (commit: GitCommit) => {
+    setSelected(commit);
+    if (diffCache[commit.hash]) return;
     setDiffLoading(true);
     try {
-      const res = await gitApi.diff(repoPath, hash);
-      setDiffCache(prev => ({ ...prev, [hash]: (res.data as { patch?: string }).patch || '' }));
+      const res = await gitApi.diff(repoPath, commit.hash);
+      setDiffCache(prev => ({ ...prev, [commit.hash]: (res.data as { patch?: string }).patch || '' }));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '加载失败';
       addNotification({ type: 'error', message: `Diff 加载失败: ${msg}` });
@@ -431,42 +430,29 @@ function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotif
     );
   }
 
+  // 紧凑的列表（窄侧栏内合理展示），点击 commit 弹全屏 Modal 看 diff
   return (
     <div className="pb-2">
-      <div className="text-[10px] text-zinc-600 px-3 pb-1">共 {total} 次提交</div>
-      {commits.map((commit) => {
-        const isOpen = expanded === commit.hash;
-        return (
-          <div key={commit.hash} className="mx-1 mb-1 rounded bg-zinc-900/40 border border-zinc-800/60 overflow-hidden">
-            <button
-              onClick={() => toggleDiff(commit.hash)}
-              className="w-full p-2 flex items-start gap-2 hover:bg-zinc-800/60 transition-colors text-left"
-            >
-              <ChevronRight className={`w-3 h-3 mt-0.5 shrink-0 text-zinc-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
-              <GitCommitIcon className="w-3 h-3 mt-0.5 shrink-0 text-zinc-500" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] text-zinc-200 truncate">{commit.message}</p>
-                <p className="text-[10px] text-zinc-500 mt-0.5">
-                  <span className="font-mono text-emerald-400/70">{commit.hash.slice(0, 7)}</span>
-                  <span className="mx-1">·</span>
-                  <span className="text-zinc-400">{commit.author}</span>
-                </p>
-              </div>
-            </button>
-            {isOpen && (
-              <div className="px-2 pb-2 pt-1 border-t border-zinc-800 bg-zinc-950/40">
-                {diffLoading && !diffCache[commit.hash] ? (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
-                  </div>
-                ) : (
-                  <GitDiffView patch={diffCache[commit.hash] || ''} repoPath={repoPath} hash={commit.hash} />
-                )}
-              </div>
-            )}
+      <div className="text-[10px] text-zinc-600 px-3 pb-1 flex items-center justify-between">
+        <span>共 {total} 次提交 · 点击查看 diff</span>
+      </div>
+      {commits.map((commit) => (
+        <button
+          key={commit.hash}
+          onClick={() => openCommit(commit)}
+          className="w-full mx-0 px-3 py-1.5 flex items-start gap-2 hover:bg-zinc-800/60 transition-colors text-left group"
+        >
+          <GitCommitIcon className="w-3 h-3 mt-0.5 shrink-0 text-zinc-600 group-hover:text-emerald-400" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-zinc-200 truncate">{commit.message}</p>
+            <p className="text-[10px] text-zinc-500 mt-0.5 flex items-center gap-1.5">
+              <span className="font-mono text-emerald-400/70">{commit.hash.slice(0, 7)}</span>
+              <span className="text-zinc-600">·</span>
+              <span className="text-zinc-400 truncate">{commit.author}</span>
+            </p>
           </div>
-        );
-      })}
+        </button>
+      ))}
       {hasMore && !loading && (
         <div className="flex items-center justify-center py-2">
           <button
@@ -477,6 +463,70 @@ function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotif
           </button>
         </div>
       )}
+
+      {/* 全屏 commit diff Modal */}
+      {selected && (
+        <CommitDiffModal
+          commit={selected}
+          patch={diffCache[selected.hash] || ''}
+          loading={diffLoading && !diffCache[selected.hash]}
+          repoPath={repoPath}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CommitDiffModal({ commit, patch, loading, repoPath, onClose }: {
+  commit: GitCommit;
+  patch: string;
+  loading: boolean;
+  repoPath: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-6xl h-[85vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal 头 */}
+        <div className="flex items-start gap-3 px-5 py-3 border-b border-zinc-800 shrink-0">
+          <GitCommitIcon className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold text-white break-words">{commit.message}</h3>
+            <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+              <span className="font-mono text-emerald-400/80">{commit.hash.slice(0, 7)}</span>
+              <span>·</span>
+              <span className="text-zinc-400">{commit.author}</span>
+              <span>·</span>
+              <span>{commit.date.slice(0, 16).replace('T', ' ')}</span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white shrink-0"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+        </div>
+        {/* Modal 内容：完整 diff */}
+        <div className="flex-1 overflow-auto min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+            </div>
+          ) : (
+            <div className="p-3">
+              <GitDiffView patch={patch} repoPath={repoPath} hash={commit.hash} />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
