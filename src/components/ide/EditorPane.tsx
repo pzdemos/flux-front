@@ -107,17 +107,39 @@ export default function EditorPane({ filePath, fileName, active, onDirtyChange }
     return () => window.removeEventListener('keydown', handler);
   }, [active, handleSave]);
 
+  // active 切换时强制重排：Monaco 在 hidden(display:none) 容器里挂载时
+  // 拿不到尺寸，从 hidden → visible 切换必须手动 layout()，否则点击不进、显示错位
   useEffect(() => {
-    if (active) editorRef.current?.focus();
+    if (!active) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const raf1 = requestAnimationFrame(() => {
+      editor.layout();
+      editor.focus();
+    });
+    // 第二次保险：等 CSS 完全应用后再 layout 一次
+    const raf2 = requestAnimationFrame(() => {
+      editor.layout();
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, [active]);
 
   const handleEditorMount = (editor: EditorOnMountParam) => {
     editorRef.current = editor;
-    if (active) editor.focus();
+    if (active) {
+      // mount 后下一帧 layout，确保拿到真实尺寸
+      requestAnimationFrame(() => {
+        editor.layout();
+        editor.focus();
+      });
+    }
   };
 
   return (
-    <div className={`flex flex-col h-full bg-zinc-900 ${active ? '' : 'hidden'}`}>
+    <div className={`absolute inset-0 flex flex-col bg-zinc-900 ${active ? '' : 'invisible pointer-events-none'}`}>
       {saving && (
         <div className="absolute top-2 right-4 z-10 text-xs text-emerald-400 flex items-center gap-1">
           <Loader2 className="w-3 h-3 animate-spin" /> 保存中...
