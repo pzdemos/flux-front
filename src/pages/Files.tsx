@@ -19,7 +19,7 @@ import {
   Trash2, Edit3, Loader2, WifiOff,
   MoreVertical, Lock, Download, Scissors, Copy,
   FileArchive, Wrench, X, Check, Square, ClipboardCheck, Server, BookOpen,
-  GitBranch, AlertTriangle, Link, Eye, Settings
+  GitBranch, AlertTriangle, Link, Eye, Settings, Code
 } from 'lucide-react';
 import type { FileItem, RawFileItem, GitCommit } from '@/types';
 
@@ -1462,6 +1462,12 @@ export default function FilesPage() {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white">
             {contextMenu.file.isDirectory ? <Folder className="w-4 h-4" /> : <FileIcon className="w-4 h-4" />}{contextMenu.file.isDirectory ? '打开' : '编辑'}
           </button>
+          {contextMenu.file.isDirectory && (
+            <button onClick={() => { window.location.hash = `/ide?path=${encodeURIComponent(contextMenu.file.path)}`; setContextMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-400 hover:bg-emerald-500/10">
+              <Code className="w-4 h-4" />在 IDE 中打开
+            </button>
+          )}
 
           {/* 快速操作 */}
           <button onClick={() => { handleDownload(contextMenu.file); setContextMenu(null); }}
