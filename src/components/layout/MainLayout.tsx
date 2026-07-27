@@ -1,6 +1,6 @@
 import { useDeviceType } from '@/hooks/useDeviceType';
 import { useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import FilesPage from '@/pages/Files';
@@ -27,6 +27,9 @@ export default function MainLayout() {
   useDeviceType();
   const location = useLocation();
   const setActiveModule = useAppStore((s) => s.setActiveModule);
+  const activeModule = useAppStore((s) => s.activeModule);
+  // 已访问模块保持挂载（hidden 切换），避免切走终端时销毁 WS / xterm scrollback
+  const [mountedModules, setMountedModules] = useState<Set<string>>(() => new Set(['files']));
 
   useEffect(() => {
     const path = location.pathname.split('/')[1] || 'files';
@@ -35,8 +38,15 @@ export default function MainLayout() {
     }
   }, [location.pathname, setActiveModule]);
 
-  const activeModule = useAppStore((s) => s.activeModule);
-  const ActivePage = MODULE_ROUTES[activeModule] || FilesPage;
+  useEffect(() => {
+    const key = MODULE_ROUTES[activeModule] ? activeModule : 'files';
+    setMountedModules((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, [activeModule]);
 
   return (
     <div className="flex h-[100vh] h-[100dvh] bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -44,9 +54,19 @@ export default function MainLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         <Header />
         <main className="flex-1 overflow-hidden relative">
-          <div className="absolute inset-0">
-            <ActivePage visible={activeModule === 'terminal'} />
-          </div>
+          {Object.entries(MODULE_ROUTES).map(([key, Page]) => {
+            if (!mountedModules.has(key)) return null;
+            const isActive = activeModule === key || (!MODULE_ROUTES[activeModule] && key === 'files');
+            return (
+              <div
+                key={key}
+                className={isActive ? 'absolute inset-0' : 'hidden'}
+                aria-hidden={!isActive}
+              >
+                <Page visible={isActive} />
+              </div>
+            );
+          })}
         </main>
       </div>
       <NotificationContainer />
