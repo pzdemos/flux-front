@@ -1,9 +1,11 @@
-import { X } from 'lucide-react';
+import { X, GitCompare, GitCommit } from 'lucide-react';
 
-export interface OpenTab {
-  path: string;
-  name: string;
-}
+export type DiffScope = 'all' | 'staged' | 'unstaged';
+
+export type OpenTab =
+  | { kind: 'file'; path: string; name: string }
+  | { kind: 'diff'; path: string; name: string; file: string; scope: DiffScope }
+  | { kind: 'commit'; path: string; name: string; hash: string; message: string };
 
 interface EditorTabsProps {
   tabs: OpenTab[];
@@ -20,7 +22,7 @@ export default function EditorTabs({ tabs, activePath, dirtySet, onSelect, onClo
     <div className="flex items-center bg-zinc-900 border-b border-zinc-800 overflow-x-auto shrink-0">
       {tabs.map((tab) => {
         const active = tab.path === activePath;
-        const dirty = dirtySet.has(tab.path);
+        const dirty = tab.kind === 'file' && dirtySet.has(tab.path);
         return (
           <div
             key={tab.path}
@@ -30,8 +32,10 @@ export default function EditorTabs({ tabs, activePath, dirtySet, onSelect, onClo
                 : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 border-t-2 border-t-transparent'
             }`}
             onClick={() => onSelect(tab.path)}
-            title={tab.path}
+            title={tab.kind === 'commit' ? tab.message : tab.kind === 'diff' ? tab.file : tab.path}
           >
+            {tab.kind === 'diff' && <GitCompare className="w-3 h-3 text-sky-400 shrink-0" />}
+            {tab.kind === 'commit' && <GitCommit className="w-3 h-3 text-emerald-400 shrink-0" />}
             <span className="truncate max-w-[180px]">{tab.name}</span>
             <button
               onClick={(e) => {

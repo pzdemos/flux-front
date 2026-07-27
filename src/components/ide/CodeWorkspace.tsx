@@ -4,12 +4,14 @@ import { useAppStore } from '@/stores/app';
 import { gitApi, fileApi } from '@/api/client';
 import type { FileItem } from '@/types';
 import FileTree, { type GitStatusMap, type ClipboardData, type NodeAction } from './FileTree';
-import EditorTabs, { type OpenTab } from './EditorTabs';
+import EditorTabs, { type OpenTab, type DiffScope } from './EditorTabs';
 import EditorPane from './EditorPane';
+import DiffPane from './DiffPane';
 import GitPanel from './GitPanel';
 import PromptDialog from './PromptDialog';
 import ConfirmDialog from './ConfirmDialog';
 import { ArrowLeft, GitBranch, FolderTree, Code2, FileText, RefreshCw } from 'lucide-react';
+import type { GitCommit } from '@/types';
 
 interface CodeWorkspaceProps {
   path: string;
@@ -140,15 +142,45 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   const openFile = useCallback((file: FileItem) => {
     setTabs(prev => {
       if (prev.find(t => t.path === file.path)) return prev;
-      return [...prev, { path: file.path, name: file.name }];
+      return [...prev, { kind: 'file', path: file.path, name: file.name }];
     });
     setActivePath(file.path);
     void loadFileContent(file.path);
     if (isMobile) setMobileView('editor');
   }, [isMobile, loadFileContent]);
 
+  const openWorkingDiff = useCallback((file: string, scope: DiffScope) => {
+    const tabPath = `diff:${scope}:${file}`;
+    const base = file.slice(file.lastIndexOf('/') + 1) || file;
+    const name = scope === 'staged' ? `${base} (Index)` : `${base} (Working Tree)`;
+    setTabs(prev => {
+      if (prev.find(t => t.path === tabPath)) return prev;
+      return [...prev, { kind: 'diff', path: tabPath, name, file, scope }];
+    });
+    setActivePath(tabPath);
+    if (isMobile) setMobileView('editor');
+  }, [isMobile]);
+
+  const openCommitDiff = useCallback((commit: GitCommit) => {
+    const tabPath = `commit:${commit.hash}`;
+    const name = commit.message.split('\n')[0].slice(0, 40) || commit.hash.slice(0, 7);
+    setTabs(prev => {
+      if (prev.find(t => t.path === tabPath)) return prev;
+      return [...prev, {
+        kind: 'commit',
+        path: tabPath,
+        name,
+        hash: commit.hash,
+        message: commit.message,
+      }];
+    });
+    setActivePath(tabPath);
+    if (isMobile) setMobileView('editor');
+  }, [isMobile]);
+
   const closeTab = useCallback((filePath: string, skipConfirm = false) => {
-    if (!skipConfirm && dirtyRef.current.has(filePath)) {
+    const tab = tabsRef.current.find(t => t.path === filePath);
+    if (!skipConfirm && tab?.kind === 'file' && dirtyRef.current.has(filePath)) {
       if (!window.confirm('该文件有未保存修改，确定关闭？')) return false;
     }
     setTabs(prev => {
@@ -159,25 +191,26 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
       });
       return next;
     });
-    setDirtySet(prev => {
-      if (!prev.has(filePath)) return prev;
-      const next = new Set(prev);
-      next.delete(filePath);
-      return next;
-    });
-    // 清理内容缓存：下次重新打开会重新加载最新内容
-    setContents(prev => {
-      if (!(filePath in prev)) return prev;
-      const next = { ...prev };
-      delete next[filePath];
-      return next;
-    });
-    setContentErrors(prev => {
-      if (!(filePath in prev)) return prev;
-      const next = { ...prev };
-      delete next[filePath];
-      return next;
-    });
+    if (tab?.kind === 'file') {
+      setDirtySet(prev => {
+        if (!prev.has(filePath)) return prev;
+        const next = new Set(prev);
+        next.delete(filePath);
+        return next;
+      });
+      setContents(prev => {
+        if (!(filePath in prev)) return prev;
+        const next = { ...prev };
+        delete next[filePath];
+        return next;
+      });
+      setContentErrors(prev => {
+        if (!(filePath in prev)) return prev;
+        const next = { ...prev };
+        delete next[filePath];
+        return next;
+      });
+    }
     return true;
   }, []);
 
@@ -195,8 +228,8 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   // 更新单个 tab 的 path（用于重命名）
   const renameTab = useCallback((oldPath: string, newPath: string) => {
     setTabs(prev => prev.map(t => {
-      if (t.path !== oldPath) return t;
-      return { path: newPath, name: basename(newPath) };
+      if (t.kind !== 'file' || t.path !== oldPath) return t;
+      return { kind: 'file', path: newPath, name: basename(newPath) };
     }));
     setActivePath(prev => prev === oldPath ? newPath : prev);
     setDirtySet(prev => {
@@ -225,9 +258,10 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   // 替换路径前缀（用于移动目录）
   const rebaseTabs = useCallback((oldPrefix: string, newPrefix: string) => {
     setTabs(prev => prev.map(t => {
+      if (t.kind !== 'file') return t;
       if (!t.path.startsWith(oldPrefix + '/') && t.path !== oldPrefix) return t;
       const newPath = newPrefix + t.path.slice(oldPrefix.length);
-      return { path: newPath, name: basename(newPath) };
+      return { kind: 'file', path: newPath, name: basename(newPath) };
     }));
     setActivePath(prev => {
       if (!prev) return prev;
@@ -271,7 +305,7 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
   // 关闭某目录及其后代下的所有 Tab（用于删除目录）
   const closeTabsUnder = useCallback((dirPath: string) => {
     const toClose = tabsRef.current
-      .filter(t => isAncestorOrSelf(t.path, dirPath))
+      .filter(t => t.kind === 'file' && isAncestorOrSelf(t.path, dirPath))
       .map(t => t.path);
     toClose.forEach(p => closeTab(p, true));
   }, [closeTab]);
@@ -497,19 +531,37 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
         <>
           <EditorTabs tabs={tabs} activePath={activePath} dirtySet={dirtySet} onSelect={setActivePath} onClose={(p) => closeTab(p)} />
           <div className="flex-1 min-h-0 relative">
-            <EditorPane
-              filePath={activeTab.path}
-              fileName={activeTab.name}
-              initialContent={contents[activeTab.path] ?? ''}
-              loading={loadingPaths.has(activeTab.path) && !(activeTab.path in contents)}
-              loadError={contentErrors[activeTab.path] ?? null}
-              isDirty={dirtySet.has(activeTab.path)}
-              repoPath={isGitRepo ? path : undefined}
-              repoRelFile={isGitRepo ? relToRepo(activeTab.path, path) : undefined}
-              gitRefreshKey={gitRefreshKey}
-              onDirtyChange={(d) => handleDirtyChange(activeTab.path, d)}
-              onSaved={refreshGit}
-            />
+            {activeTab.kind === 'diff' ? (
+              <DiffPane
+                repoPath={path}
+                file={activeTab.file}
+                scope={activeTab.scope}
+                title={activeTab.file}
+                subtitle={`${activeTab.scope === 'staged' ? 'Staged' : 'Working Tree'} · ${activeTab.file}`}
+                refreshKey={gitRefreshKey}
+              />
+            ) : activeTab.kind === 'commit' ? (
+              <DiffPane
+                repoPath={path}
+                hash={activeTab.hash}
+                title={activeTab.message.split('\n')[0]}
+                subtitle={activeTab.hash.slice(0, 7)}
+              />
+            ) : (
+              <EditorPane
+                filePath={activeTab.path}
+                fileName={activeTab.name}
+                initialContent={contents[activeTab.path] ?? ''}
+                loading={loadingPaths.has(activeTab.path) && !(activeTab.path in contents)}
+                loadError={contentErrors[activeTab.path] ?? null}
+                isDirty={dirtySet.has(activeTab.path)}
+                repoPath={isGitRepo ? path : undefined}
+                repoRelFile={isGitRepo ? relToRepo(activeTab.path, path) : undefined}
+                gitRefreshKey={gitRefreshKey}
+                onDirtyChange={(d) => handleDirtyChange(activeTab.path, d)}
+                onSaved={refreshGit}
+              />
+            )}
           </div>
         </>
       )}
@@ -548,7 +600,13 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
           </div>
           {mobileView === 'git' && isGitRepo && (
             <div className="absolute inset-0">
-              <GitPanel repoPath={path} refreshKey={gitRefreshKey} />
+              <GitPanel
+                repoPath={path}
+                refreshKey={gitRefreshKey}
+                onOpenFileDiff={openWorkingDiff}
+                onOpenCommitDiff={openCommitDiff}
+                onCommitted={refreshGit}
+              />
             </div>
           )}
         </div>
@@ -575,7 +633,13 @@ export default function CodeWorkspace({ path }: CodeWorkspaceProps) {
             </div>
             {gitPanelOpen && (
               <div className="h-full min-w-0">
-                <GitPanel repoPath={path} refreshKey={gitRefreshKey} />
+                <GitPanel
+                repoPath={path}
+                refreshKey={gitRefreshKey}
+                onOpenFileDiff={openWorkingDiff}
+                onOpenCommitDiff={openCommitDiff}
+                onCommitted={refreshGit}
+              />
               </div>
             )}
           </div>

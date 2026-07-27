@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { gitApi } from '@/api/client';
 import { useAppStore } from '@/stores/app';
 import type { GitCommit } from '@/types';
-import GitDiffView from '@/components/file-manager/GitDiffView';
+import type { DiffScope } from './EditorTabs';
 import {
   Loader2, ChevronRight, ChevronDown, RefreshCw, GitBranch, GitCommit as GitCommitIcon,
   Check, Plus, Minus, ArrowUp, ArrowDown, Inbox,
@@ -10,21 +10,29 @@ import {
 
 /** 单个改动文件条目 */
 interface ChangeEntry {
-  file: string;        // 相对 repo 根的路径
-  status: string;      // M/A/D/R/C/untracked/conflict
-  x: string;           // staged 状态码
-  y: string;           // 工作区状态码
-  basename: string;    // 文件名（不含目录）
-  dirname: string;     // 目录部分
+  file: string;
+  status: string;
+  x: string;
+  y: string;
+  basename: string;
+  dirname: string;
 }
 
 interface GitPanelProps {
   repoPath: string;
-  refreshKey: number;        // 外部触发刷新（保存/commit 等）
-  onCommit?: () => void;     // commit 成功后通知父组件刷新文件树徽章
+  refreshKey: number;
+  onOpenFileDiff?: (file: string, scope: DiffScope) => void;
+  onOpenCommitDiff?: (commit: GitCommit) => void;
+  onCommitted?: () => void;
 }
 
-export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
+export default function GitPanel({
+  repoPath,
+  refreshKey,
+  onOpenFileDiff,
+  onOpenCommitDiff,
+  onCommitted,
+}: GitPanelProps) {
   const [branch, setBranch] = useState<string>('');
   const [ahead, setAhead] = useState(0);
   const [behind, setBehind] = useState(0);
@@ -35,12 +43,9 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
   const [collapsedStaged, setCollapsedStaged] = useState(false);
   const [collapsedChanges, setCollapsedChanges] = useState(false);
   const [collapsedHistory, setCollapsedHistory] = useState(true);
-  const [collapsedDiff, setCollapsedDiff] = useState(true);
-  const [diffPatch, setDiffPatch] = useState<string>('');
-  const [diffLoading, setDiffLoading] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const addNotification = useAppStore((s) => s.addNotification);
 
-  // ===== 加载状态 =====
   const loadStatus = useCallback(async () => {
     setLoading(true);
     try {
@@ -64,8 +69,6 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
           dirname: slashIdx >= 0 ? c.file.slice(0, slashIdx) : '',
         };
       }));
-      // changes 变了，旧 diff 已失效，重置
-      setDiffPatch('');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '加载失败';
       addNotification({ type: 'error', message: `Git 状态加载失败: ${msg}` });
@@ -76,14 +79,11 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
 
   useEffect(() => { loadStatus(); }, [loadStatus, refreshKey]);
 
-  // 拆分 staged / unstaged
   const staged = changes.filter(c => c.x !== ' ' && c.x !== '?');
   const unstaged = changes.filter(c => c.y !== ' ' || c.x === '?');
-  // untracked 文件 (??) 只在 unstaged 显示，不在 staged
   const stagedClean = staged.filter(c => c.x !== '?');
   const unstagedClean = unstaged.filter(c => !(c.x === '?' && c.y === '?') || c.status === 'untracked');
 
-  // ===== Stage / Unstage =====
   const stageFile = useCallback(async (file: string) => {
     try {
       await gitApi.stage(repoPath, [file]);
@@ -124,50 +124,35 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
     }
   }, [repoPath, loadStatus, addNotification]);
 
-  // ===== Commit =====
+  // VSCode 风格：暂存区空但有改动时，先 stage 全部再提交
   const handleCommit = useCallback(async () => {
     const msg = commitMsg.trim();
     if (!msg) {
       addNotification({ type: 'error', message: '请输入提交信息' });
+      textareaRef.current?.focus();
       return;
     }
-    if (stagedClean.length === 0) {
-      addNotification({ type: 'error', message: '暂存区为空，请先 stage 文件' });
+    if (stagedClean.length === 0 && unstagedClean.length === 0) {
+      addNotification({ type: 'error', message: '没有可提交的改动' });
       return;
     }
     setCommitting(true);
     try {
+      if (stagedClean.length === 0) {
+        await gitApi.stage(repoPath);
+      }
       await gitApi.commit(repoPath, msg);
       addNotification({ type: 'success', message: `已提交: ${msg.slice(0, 40)}` });
       setCommitMsg('');
       await loadStatus();
+      onCommitted?.();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '提交失败';
-      addNotification({ type: 'error', message: `提交失败: ${msg}` });
+      const errMsg = err instanceof Error ? err.message : '提交失败';
+      addNotification({ type: 'error', message: `提交失败: ${errMsg}` });
     } finally {
       setCommitting(false);
     }
-  }, [commitMsg, stagedClean.length, repoPath, loadStatus, addNotification]);
-
-  // ===== 工作区 Diff 折叠展开 =====
-  const toggleFullDiff = useCallback(async () => {
-    if (!collapsedDiff) {
-      setCollapsedDiff(true);
-      return;
-    }
-    setCollapsedDiff(false);
-    if (diffPatch) return;
-    setDiffLoading(true);
-    try {
-      const res = await gitApi.workingDiff(repoPath);
-      setDiffPatch((res.data as { patch?: string }).patch || '');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '加载失败';
-      addNotification({ type: 'error', message: `Diff 加载失败: ${msg}` });
-    } finally {
-      setDiffLoading(false);
-    }
-  }, [collapsedDiff, diffPatch, repoPath, addNotification]);
+  }, [commitMsg, stagedClean.length, unstagedClean.length, repoPath, loadStatus, addNotification, onCommitted]);
 
   if (loading && changes.length === 0) {
     return (
@@ -179,10 +164,15 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
   }
 
   const totalChanges = changes.length;
+  const canCommit = commitMsg.trim().length > 0 && (stagedClean.length > 0 || unstagedClean.length > 0);
+  const commitLabel = stagedClean.length > 0
+    ? `提交 (${stagedClean.length})`
+    : unstagedClean.length > 0
+      ? `暂存全部并提交 (${unstagedClean.length})`
+      : '提交';
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-zinc-200">
-      {/* 顶部：分支 + 刷新 */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 shrink-0">
         <GitBranch className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
         <span className="text-xs font-medium truncate flex-1" title={branch}>{branch || 'HEAD'}</span>
@@ -197,34 +187,33 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
         </button>
       </div>
 
-      {/* 滚动区 */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {/* 提交输入 */}
-        <div className="p-2 border-b border-zinc-800 shrink-0">
+        {/* Message + Commit（对标 VSCode SCM） */}
+        <div className="p-2 border-b border-zinc-800 shrink-0 space-y-1.5">
           <textarea
+            ref={textareaRef}
             value={commitMsg}
             onChange={(e) => setCommitMsg(e.target.value)}
-            placeholder="提交信息（Ctrl+Enter 提交）"
-            rows={2}
+            placeholder="Message (⌘/Ctrl+Enter to commit)"
+            rows={3}
             onKeyDown={(e) => {
               if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
-                handleCommit();
+                void handleCommit();
               }
             }}
-            className="w-full px-2 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-white focus:outline-none focus:border-emerald-500 resize-none"
+            className="w-full px-2 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 resize-none leading-relaxed"
           />
           <button
-            onClick={handleCommit}
-            disabled={committing || !commitMsg.trim() || stagedClean.length === 0}
-            className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => void handleCommit()}
+            disabled={committing || !canCommit}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {committing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            提交{stagedClean.length > 0 ? ` (${stagedClean.length})` : ''}
+            {commitLabel}
           </button>
         </div>
 
-        {/* Staged Changes */}
         <SectionHeader
           label="Staged Changes"
           count={stagedClean.length}
@@ -240,10 +229,10 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
             entry={c}
             stage="staged"
             onStage={() => unstageFile(c.file)}
+            onOpen={() => onOpenFileDiff?.(c.file, 'staged')}
           />
         ))}
 
-        {/* Changes */}
         <SectionHeader
           label="Changes"
           count={unstagedClean.length}
@@ -259,10 +248,10 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
             entry={c}
             stage="unstaged"
             onStage={() => stageFile(c.file)}
+            onOpen={() => onOpenFileDiff?.(c.file, 'unstaged')}
           />
         ))}
 
-        {/* 空状态 */}
         {totalChanges === 0 && !loading && (
           <div className="px-3 py-8 text-center text-zinc-600">
             <Inbox className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -270,42 +259,18 @@ export default function GitPanel({ repoPath, refreshKey }: GitPanelProps) {
           </div>
         )}
 
-        {/* 完整工作区 Diff */}
-        {totalChanges > 0 && (
-          <>
-            <SectionHeader
-              label="工作区 Diff"
-              count={null}
-              collapsed={collapsedDiff}
-              onToggle={toggleFullDiff}
-            />
-            {!collapsedDiff && (
-              <div className="border-t border-zinc-800 bg-zinc-900/30">
-                {diffLoading ? (
-                  <div className="flex items-center justify-center py-6">
-                    <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
-                  </div>
-                ) : diffPatch ? (
-                  <div className="p-2">
-                    <GitDiffView patch={diffPatch} repoPath={repoPath} hash="WORKING" disableExpand />
-                  </div>
-                ) : (
-                  <div className="px-3 py-3 text-[11px] text-zinc-600 italic">无内容</div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* 提交历史 */}
         <SectionHeader
-          label="提交历史"
+          label="Commits"
           count={null}
           collapsed={collapsedHistory}
           onToggle={() => setCollapsedHistory(v => !v)}
         />
         {!collapsedHistory && (
-          <HistoryView repoPath={repoPath} addNotification={addNotification} />
+          <HistoryView
+            repoPath={repoPath}
+            addNotification={addNotification}
+            onOpenCommit={onOpenCommitDiff}
+          />
         )}
       </div>
     </div>
@@ -343,19 +308,24 @@ function SectionHeader({ label, count, collapsed, onToggle, actionIcon, actionTi
   );
 }
 
-function ChangeRow({ entry, stage, onStage }: {
+function ChangeRow({ entry, stage, onStage, onOpen }: {
   entry: ChangeEntry;
   stage: 'staged' | 'unstaged';
   onStage: () => void;
+  onOpen?: () => void;
 }) {
-  const { letter, color } = statusMeta(entry.status, stage);
+  const { letter, color } = statusMeta(entry.status);
   return (
-    <div className="group flex items-center gap-1.5 pl-4 pr-2 py-1 hover:bg-zinc-800/60 text-xs">
+    <div
+      className="group flex items-center gap-1.5 pl-4 pr-2 py-1 hover:bg-zinc-800/60 text-xs cursor-pointer"
+      onClick={() => onOpen?.()}
+      title="在编辑器中打开对比"
+    >
       <span className={`w-3 shrink-0 text-center text-[10px] font-mono font-bold ${color}`}>{letter}</span>
       <span className="truncate text-zinc-200 flex-1 min-w-0">{entry.basename}</span>
       {entry.dirname && <span className="text-[10px] text-zinc-600 truncate shrink-0">{entry.dirname}</span>}
       <button
-        onClick={onStage}
+        onClick={(e) => { e.stopPropagation(); onStage(); }}
         className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200 opacity-0 group-hover:opacity-100 shrink-0"
         title={stage === 'staged' ? '取消暂存 (−)' : '暂存 (+)'}
       >
@@ -365,7 +335,7 @@ function ChangeRow({ entry, stage, onStage }: {
   );
 }
 
-function statusMeta(status: string, _stage: 'staged' | 'unstaged') {
+function statusMeta(status: string) {
   switch (status) {
     case 'M': return { letter: 'M', color: 'text-amber-400' };
     case 'A': return { letter: 'A', color: 'text-emerald-400' };
@@ -378,15 +348,16 @@ function statusMeta(status: string, _stage: 'staged' | 'unstaged') {
   }
 }
 
-function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotification: (n: { type: 'success' | 'error' | 'info'; message: string }) => void }) {
+function HistoryView({ repoPath, addNotification, onOpenCommit }: {
+  repoPath: string;
+  addNotification: (n: { type: 'success' | 'error' | 'info'; message: string }) => void;
+  onOpenCommit?: (commit: GitCommit) => void;
+}) {
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<GitCommit | null>(null);
-  const [diffCache, setDiffCache] = useState<Record<string, string>>({});
-  const [diffLoading, setDiffLoading] = useState(false);
 
   const loadCommits = useCallback(async (pageNum: number, append: boolean) => {
     setLoading(true);
@@ -407,21 +378,6 @@ function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotif
 
   useEffect(() => { loadCommits(1, false); }, [loadCommits]);
 
-  const openCommit = async (commit: GitCommit) => {
-    setSelected(commit);
-    if (diffCache[commit.hash]) return;
-    setDiffLoading(true);
-    try {
-      const res = await gitApi.diff(repoPath, commit.hash);
-      setDiffCache(prev => ({ ...prev, [commit.hash]: (res.data as { patch?: string }).patch || '' }));
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '加载失败';
-      addNotification({ type: 'error', message: `Diff 加载失败: ${msg}` });
-    } finally {
-      setDiffLoading(false);
-    }
-  };
-
   if (commits.length === 0 && loading) {
     return (
       <div className="flex items-center justify-center py-6">
@@ -430,16 +386,15 @@ function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotif
     );
   }
 
-  // 紧凑的列表（窄侧栏内合理展示），点击 commit 弹全屏 Modal 看 diff
   return (
     <div className="pb-2">
-      <div className="text-[10px] text-zinc-600 px-3 pb-1 flex items-center justify-between">
-        <span>共 {total} 次提交 · 点击查看 diff</span>
+      <div className="text-[10px] text-zinc-600 px-3 pb-1">
+        共 {total} 次提交 · 点击在编辑器打开
       </div>
       {commits.map((commit) => (
         <button
           key={commit.hash}
-          onClick={() => openCommit(commit)}
+          onClick={() => onOpenCommit?.(commit)}
           className="w-full mx-0 px-3 py-1.5 flex items-start gap-2 hover:bg-zinc-800/60 transition-colors text-left group"
         >
           <GitCommitIcon className="w-3 h-3 mt-0.5 shrink-0 text-zinc-600 group-hover:text-emerald-400" />
@@ -463,70 +418,6 @@ function HistoryView({ repoPath, addNotification }: { repoPath: string; addNotif
           </button>
         </div>
       )}
-
-      {/* 全屏 commit diff Modal */}
-      {selected && (
-        <CommitDiffModal
-          commit={selected}
-          patch={diffCache[selected.hash] || ''}
-          loading={diffLoading && !diffCache[selected.hash]}
-          repoPath={repoPath}
-          onClose={() => setSelected(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function CommitDiffModal({ commit, patch, loading, repoPath, onClose }: {
-  commit: GitCommit;
-  patch: string;
-  loading: boolean;
-  repoPath: string;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-6xl h-[85vh] flex flex-col shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal 头 */}
-        <div className="flex items-start gap-3 px-5 py-3 border-b border-zinc-800 shrink-0">
-          <GitCommitIcon className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-white break-words">{commit.message}</h3>
-            <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
-              <span className="font-mono text-emerald-400/80">{commit.hash.slice(0, 7)}</span>
-              <span>·</span>
-              <span className="text-zinc-400">{commit.author}</span>
-              <span>·</span>
-              <span>{commit.date.slice(0, 16).replace('T', ' ')}</span>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white shrink-0"
-          >
-            <ChevronDown className="w-4 h-4" />
-          </button>
-        </div>
-        {/* Modal 内容：完整 diff */}
-        <div className="flex-1 overflow-auto min-h-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
-            </div>
-          ) : (
-            <div className="p-3">
-              <GitDiffView patch={patch} repoPath={repoPath} hash={commit.hash} />
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
