@@ -282,70 +282,180 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
   const [searchQuery, setSearchQuery] = useState('');
 
   const wsRef = useRef<WebSocket | null>(null);
+  const wsReadyRef = useRef(false);
+  const stoppedRef = useRef(false);
   const inputBufferRef = useRef<string[]>([]);
+  const pendingResizeRef = useRef<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   useEffect(() => {
-    let ws: WebSocket | null = null;
     let cancelled = false;
-    let manualClose = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let connectionTimer: ReturnType<typeof setTimeout> | null = null;
     let attemptCount = 0;
+    let previousToken: string | null = null;
+    let fatalFailure = false;
 
     const MAX_RECONNECT = 5;
     const BACKOFF_BASE_MS = 1000;
+    const CONNECTION_TIMEOUT_MS = 10000;
+    const AUTH_ERRORS = new Set(['AUTH_FAILED', 'AUTH_REQUIRED', 'AUTH_EXPIRED']);
+    stoppedRef.current = false;
+    wsReadyRef.current = false;
 
+    const clearConnectionTimer = () => {
+      if (connectionTimer) clearTimeout(connectionTimer);
+      connectionTimer = null;
+    };
+    const clearPending = () => {
+      inputBufferRef.current = [];
+      pendingResizeRef.current = null;
+    };
+    const reportFailure = (message: string) => {
+      setConnectionError(message);
+      xtermRef.current?.write(`\r\n\x1b[31m[错误] ${message}\x1b[0m\r\n`);
+    };
+    const stop = (message: string) => {
+      fatalFailure = true;
+      stoppedRef.current = true;
+      wsReadyRef.current = false;
+      clearConnectionTimer();
+      clearPending();
+      setWsConnected(false);
+      updateTabStatus(tab.id, 'ERROR');
+      reportFailure(message);
+    };
+    const isCurrent = (socket: WebSocket) => !cancelled && wsRef.current === socket;
 
-    const flushPending = () => {
-      while (inputBufferRef.current.length > 0) {
-        const data = inputBufferRef.current[0];
-        if (ws?.readyState === WebSocket.OPEN) {
-          try { ws.send(data); } catch (_) { break; }
-          inputBufferRef.current.shift();
-        } else {
-          break;
-        }
+    const reconnect = () => {
+      if (cancelled || stoppedRef.current) return;
+      if (attemptCount < MAX_RECONNECT) {
+        const delay = BACKOFF_BASE_MS * Math.pow(2, attemptCount++);
+        updateTabStatus(tab.id, 'RECONNECTING');
+        reconnectTimer = setTimeout(connect, delay);
+      } else {
+        stoppedRef.current = true;
+        clearPending();
+        updateTabStatus(tab.id, 'DISCONNECTED');
+        reportFailure('终端连接失败，请检查网络或刷新页面后重试。');
       }
     };
 
+    const disconnected = (socket: WebSocket, code: number) => {
+      if (!isCurrent(socket)) return;
+      wsRef.current = null;
+      wsReadyRef.current = false;
+      clearConnectionTimer();
+      setWsConnected(false);
+      if (code === 4001 || code === 4003) {
+        if (!fatalFailure) stop(code === 4001
+          ? '终端认证已失效，请重新登录。'
+          : '没有终端访问权限，请检查权限后重试。');
+        return;
+      }
+      // Existing server/session shutdown and legacy-client upgrade errors are final.
+      if (stoppedRef.current || code === 1000 || code === 1001 || code === 4000) {
+        stoppedRef.current = true;
+        clearPending();
+        if (!fatalFailure) updateTabStatus(tab.id, 'DISCONNECTED');
+        return;
+      }
+      reconnect();
+    };
+
     const connect = () => {
-      if (cancelled) return;
+      reconnectTimer = null;
+      if (cancelled || stoppedRef.current) return;
       const token = getToken();
-      if (!token) return;
-
-      const url = `${WS_BASE}?token=${token}&session=${tab.sessionId}`;
+      if (!token) {
+        stop('终端认证信息缺失，请重新登录。');
+        return;
+      }
+      // Never replay another login's buffered commands into its session.
+      if (previousToken !== null && previousToken !== token) clearPending();
+      previousToken = token;
+      wsReadyRef.current = false;
+      setWsConnected(false);
+      setConnectionError(null);
       updateTabStatus(tab.id, attemptCount === 0 ? 'CONNECTING' : 'RECONNECTING');
-      ws = new WebSocket(url);
-      wsRef.current = ws;
 
-      ws.onopen = () => {
-        if (cancelled) { try { ws?.close(); } catch (_) {} return; }
-        setWsConnected(true);
-        updateTabStatus(tab.id, 'CONNECTED');
-        attemptCount = 0;
-        const dims = fitAddonRef.current?.proposeDimensions();
-        if (dims) {
-          ws?.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(`${WS_BASE}?session=${encodeURIComponent(tab.sessionId)}`);
+      } catch {
+        reconnect();
+        return;
+      }
+      wsRef.current = socket;
+      let authSent = false;
+      connectionTimer = setTimeout(() => {
+        if (!isCurrent(socket) || wsReadyRef.current) return;
+        disconnected(socket, 1006);
+        try { socket.close(4008, 'Connection timeout'); } catch { /* already closed */ }
+      }, CONNECTION_TIMEOUT_MS);
+
+      socket.onopen = () => {
+        if (!isCurrent(socket)) { try { socket.close(); } catch { /* already closed */ } return; }
+        try {
+          // The credential is sent only as a frame, never in the request URL or headers.
+          socket.send(JSON.stringify({ type: 'auth', token }));
+          authSent = true;
+        } catch {
+          disconnected(socket, 1006);
+          try { socket.close(); } catch { /* already closed */ }
         }
-        flushPending();
       };
 
-      ws.onmessage = (e) => {
+      socket.onmessage = (e) => {
+        if (!isCurrent(socket) || stoppedRef.current) return;
         try {
           const msg = JSON.parse(e.data);
+          if (msg.type === 'authenticated') return; // Authentication alone is not an attached terminal.
+          if (msg.type === 'connected') {
+            if (!authSent || wsReadyRef.current) return;
+            clearConnectionTimer();
+            wsReadyRef.current = true;
+            setWsConnected(true);
+            setConnectionError(null);
+            updateTabStatus(tab.id, 'CONNECTED');
+            attemptCount = 0;
+            const dims = fitAddonRef.current?.proposeDimensions();
+            const resize = dims
+              ? JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows })
+              : pendingResizeRef.current;
+            pendingResizeRef.current = null;
+            try {
+              if (resize) socket.send(resize);
+              while (inputBufferRef.current.length > 0 && socket.readyState === WebSocket.OPEN) {
+                socket.send(inputBufferRef.current[0]);
+                inputBufferRef.current.shift();
+              }
+            } catch {
+              disconnected(socket, 1006);
+              try { socket.close(); } catch { /* already closed */ }
+            }
+            return;
+          }
+          if (msg.type === 'error') {
+            if (AUTH_ERRORS.has(msg.code)) {
+              stop('终端认证已失效，请重新登录。');
+              try { socket.close(4001, 'Authentication required'); } catch { /* already closed */ }
+            } else {
+              reportFailure(msg.message || '终端连接失败，请刷新页面后重试。');
+              setWsConnected(false);
+              updateTabStatus(tab.id, 'ERROR');
+            }
+            return;
+          }
           switch (msg.type) {
             case 'output':
               xtermRef.current?.write(msg.data);
-              break;
-            case 'connected':
-              setWsConnected(true);
-              updateTabStatus(tab.id, 'CONNECTED');
               break;
             case 'notice':
               xtermRef.current?.write(msg.data);
               break;
             case 'toast':
-              // 服务端主动通知（如多端连接提示），用 toast 显示而不是污染终端
               addNotification({
                 type: msg.level === 'warning' ? 'warning' : msg.level === 'error' ? 'error' : 'info',
                 message: msg.message,
@@ -354,22 +464,18 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
               break;
             case 'exit':
               xtermRef.current?.write(`\r\n\x1b[31m[进程退出] exitCode=${msg.exitCode}${msg.signal ? ` signal=${msg.signal}` : ''}\x1b[0m\r\n`);
+              stoppedRef.current = true;
+              wsReadyRef.current = false;
+              clearPending();
               setWsConnected(false);
               updateTabStatus(tab.id, 'DISCONNECTED');
               break;
-            case 'error':
-              xtermRef.current?.write(`\r\n\x1b[31m[错误] ${msg.message}\x1b[0m\r\n`);
-              setWsConnected(false);
-              updateTabStatus(tab.id, 'ERROR');
-              break;
-            // 多端实时同步：后端广播的会话级消息
             case 'session_created':
             case 'session_deleted':
             case 'sessions':
               onSessionChange?.();
               break;
             case 'ws_counts':
-              // 多端 tab 角标：实时更新各 session 的连接数
               useTerminalStore.getState().setWsCounts(msg.counts || {});
               break;
           }
@@ -378,50 +484,35 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
         }
       };
 
-      ws.onclose = (event) => {
-        if (cancelled) return;
-        setWsConnected(false);
-
-        // 服务端主动断开（1000 正常退出 / 1001 会话销毁 / 4000 attach 失败）→ 不重连
-        const intentional = event.code === 1000 || event.code === 1001 || event.code === 4000;
-        if (intentional || manualClose) {
-          updateTabStatus(tab.id, 'DISCONNECTED');
-          return;
-        }
-
-        // 网络问题 / 反代超时 → 指数退避重连
-        if (attemptCount < MAX_RECONNECT) {
-          attemptCount++;
-          const delay = BACKOFF_BASE_MS * Math.pow(2, attemptCount - 1);
-          updateTabStatus(tab.id, 'RECONNECTING');
-          reconnectTimer = setTimeout(connect, delay);
-        } else {
-          updateTabStatus(tab.id, 'DISCONNECTED');
-        }
-      };
-
-      ws.onerror = () => {
-        if (cancelled) return;
+      socket.onclose = (event) => disconnected(socket, event.code);
+      socket.onerror = () => {
+        if (!isCurrent(socket) || stoppedRef.current) return;
         updateTabStatus(tab.id, 'ERROR');
       };
     };
 
     connect();
-
     return () => {
       cancelled = true;
-      manualClose = true;
+      stoppedRef.current = true;
+      wsReadyRef.current = false;
+      clearPending();
+      clearConnectionTimer();
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      try { ws?.close(); } catch (_) {}
+      const socket = wsRef.current;
+      wsRef.current = null;
+      try { socket?.close(); } catch { /* already closed */ }
     };
   }, [tab.id, tab.sessionId, updateTabStatus]);
 
   const send = useCallback((data: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      try { wsRef.current.send(data); } catch (_) {}
+    if (stoppedRef.current) return;
+    if (wsReadyRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      try { wsRef.current.send(data); } catch { /* close handler will reconnect */ }
     } else {
-      // WS 未就绪（重连中），缓冲到重连后重放
-      inputBufferRef.current.push(data);
+      // Coalesce offline resizes so stale dimensions cannot overwrite the current fit.
+      if (JSON.parse(data).type === 'resize') pendingResizeRef.current = data;
+      else inputBufferRef.current.push(data);
     }
   }, []);
 
@@ -644,6 +735,12 @@ function TerminalInstance({ tab, isMobile, isActive, visible, onSessionChange }:
           )}
         </div>
       </div>
+
+      {connectionError && (
+        <div role="alert" className="px-3 py-2 text-xs text-amber-300 bg-amber-950/30">
+          {connectionError}
+        </div>
+      )}
 
       {showSearch && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-800 bg-zinc-900/30">
