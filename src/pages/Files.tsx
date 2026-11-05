@@ -49,6 +49,20 @@ function formatDate(isoDate: string): string {
   }
 }
 
+type RootState = 'loading' | 'ready' | 'unconfigured' | 'error';
+
+function rootFailureMessage(error: unknown): string {
+  const failure = error as AxiosError<{ error?: string; message?: string }>;
+  const status = failure.response?.status;
+  if (status === 403) return '文件服务拒绝了请求（HTTP 403），请检查访问权限后重试。';
+  if (status === 401) return '登录已失效，请重新登录。';
+  if (!failure.response && (failure.message === 'Network Error' || failure.code === 'ECONNABORTED')) {
+    return '无法连接文件服务，请检查网络后重试。';
+  }
+  if (status && status >= 500) return `文件服务暂时不可用（HTTP ${status}），请稍后重试。`;
+  return failure.response?.data?.error || failure.response?.data?.message || failure.message || '无法加载文件根目录，请重试。';
+}
+
 export default function FilesPage() {
   const { settings, updateSettings } = useAuthStore();
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -56,6 +70,24 @@ export default function FilesPage() {
   const [currentRoot, setCurrentRoot] = useState<string | null>(null);
   // ref 镜像 currentRoot，避免 setRootAndLoad 里 setCurrentRoot 后立即调用 loadFiles 时的 stale closure
   const currentRootRef = useRef<string | null>(null);
+  const [rootState, setRootState] = useState<RootState>('loading');
+  const [rootError, setRootError] = useState<string | null>(null);
+  const [rootRetry, setRootRetry] = useState(0);
+
+  const applyRoot = useCallback((root: string) => {
+    // loadFiles reads the ref immediately; React state alone updates too late.
+    currentRootRef.current = root;
+    setCurrentRoot(root);
+    setRootState('ready');
+    setRootError(null);
+  }, []);
+
+  const markRootUnconfigured = useCallback(() => {
+    currentRootRef.current = null;
+    setCurrentRoot(null);
+    setRootState('unconfigured');
+    setRootError(null);
+  }, []);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -273,25 +305,35 @@ export default function FilesPage() {
     }
   }, [viewMode]);
 
-  // 统一管理 root + path：viewMode 或 settings 相关字段变化时，重新设置后端 root、currentRoot、path
-  // （合并了原本分散在两个 useEffect 里的 root 切换逻辑，避免相互覆盖的 race）
+  // Keep the existing mode-specific server-root protocol. Request failures
+  // must not be mistaken for an authoritative "not configured" response.
   useEffect(() => {
     let cancelled = false;
+    setRootState('loading');
+    setRootError(null);
+    setLoading(true);
+
+    const failed = (error: unknown) => {
+      if (cancelled) return;
+      const failure = error as AxiosError<{ configured?: boolean }>;
+      if (failure.response?.status === 400 && failure.response.data?.configured === false) {
+        markRootUnconfigured();
+      } else {
+        setRootState('error');
+        setRootError(rootFailureMessage(error));
+      }
+      setLoading(false);
+    };
+
+    const ready = (root: string, targetPath: string) => {
+      if (cancelled) return;
+      applyRoot(root);
+      setPath(targetPath);
+      void loadFiles(targetPath);
+    };
 
     const setRootAndLoad = (root: string, targetPath: string) => {
-      systemApi.setRoot(root)
-        .then(() => {
-          if (cancelled) return;
-          currentRootRef.current = root;
-          setCurrentRoot(root);
-          setPath(targetPath);
-          loadFiles(targetPath);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          currentRootRef.current = null;
-          setCurrentRoot(null);
-        });
+      systemApi.setRoot(root).then(() => ready(root, targetPath)).catch(failed);
     };
 
     if (viewMode === 'node' || viewMode === 'skill') {
@@ -299,32 +341,28 @@ export default function FilesPage() {
         ? (settings?.node_path || '/root')
         : (settings?.skill_path || '/root/.skill');
       setRootAndLoad('/', defaultPath);
+    } else if (settings?.files_root) {
+      setRootAndLoad(settings.files_root, '/');
     } else {
-      const userRoot = settings?.files_root;
-      if (userRoot) {
-        setRootAndLoad(userRoot, '/');
-      } else {
-        // 没设置 files_root，回退到服务端默认值
-        systemApi.getRoot().then(res => {
-          if (cancelled) return;
-          const { root, configured } = res.data;
-          if (configured && root) {
-            setRootAndLoad(root, '/');
-          } else {
-            currentRootRef.current = null;
-            setCurrentRoot(null);
-          }
-        }).catch(() => {
-          if (cancelled) return;
-          currentRootRef.current = null;
-          setCurrentRoot(null);
-        });
-      }
+      systemApi.getRoot().then(res => {
+        if (cancelled) return;
+        const { root, configured } = res.data;
+        if (configured === true && typeof root === 'string' && root) {
+          // The server already confirmed this root; a redundant PUT can fail
+          // even when reading files is allowed.
+          ready(root, '/');
+        } else if (configured === false) {
+          markRootUnconfigured();
+          setFiles([]);
+          setLoading(false);
+        } else {
+          failed(new Error('文件根目录响应无效，请重试。'));
+        }
+      }).catch(failed);
     }
 
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, settings?.files_root, settings?.node_path, settings?.skill_path]);
+  }, [viewMode, settings?.files_root, settings?.node_path, settings?.skill_path, rootRetry, applyRoot, markRootUnconfigured, loadFiles]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -775,7 +813,26 @@ export default function FilesPage() {
             {viewMode === 'trash' && <TrashView />}
             {viewMode === 'tools' && <ToolsView />}
           </div>
-        ) : !currentRoot && viewMode !== 'node' && viewMode !== 'skill' ? (
+        ) : rootState === 'loading' ? (
+          <div className="flex-1 flex items-center justify-center gap-2 p-8 text-zinc-400" role="status">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            正在加载文件根目录…
+          </div>
+        ) : rootState === 'error' ? (
+          <div className="flex-1 flex items-center justify-center p-8">
+            <div className="text-center max-w-md" role="alert">
+              <WifiOff className="w-10 h-10 mx-auto mb-4 text-amber-400" />
+              <h3 className="text-lg font-medium text-white mb-2">无法加载文件根目录</h3>
+              <p className="text-sm text-zinc-400 mb-4">{rootError}</p>
+              <button
+                onClick={() => setRootRetry(attempt => attempt + 1)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm transition-colors"
+              >
+                重试
+              </button>
+            </div>
+          </div>
+        ) : rootState === 'unconfigured' ? (
           /* 根路径未配置提示 */
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center max-w-md">
@@ -795,7 +852,7 @@ export default function FilesPage() {
                   const root = prompt('请输入根路径（如 /root/common）:');
                   if (root) {
                     systemApi.setRoot(root).then(() => {
-                      setCurrentRoot(root);
+                      applyRoot(root);
                       loadFiles('/');
                     }).catch((err: any) => {
                       alert(err.response?.data?.error || '设置失败');
@@ -838,7 +895,7 @@ export default function FilesPage() {
                           } else if (input.startsWith('/') && currentRoot && currentRoot !== '/') {
                             try {
                               await systemApi.setRoot('/');
-                              setCurrentRoot('/');
+                              applyRoot('/');
                               loadFiles(input);
                             } catch {
                               addNotification({ type: 'error', message: `路径超出文件管理器范围，且无法自动切换根路径` });
@@ -875,7 +932,7 @@ export default function FilesPage() {
                               } else if (abs.startsWith('/') && currentRoot && currentRoot !== '/') {
                                 try {
                                   await systemApi.setRoot('/');
-                                  setCurrentRoot('/');
+                                  applyRoot('/');
                                   loadFiles(abs);
                                 } catch {
                                   addNotification({ type: 'error', message: '路径超出文件管理器范围，且无法自动切换根路径' });
@@ -1029,7 +1086,7 @@ export default function FilesPage() {
                       } else if (input.startsWith('/') && currentRoot && currentRoot !== '/') {
                         try {
                           await systemApi.setRoot('/');
-                          setCurrentRoot('/');
+                          applyRoot('/');
                           loadFiles(input);
                         } catch {
                           addNotification({ type: 'error', message: `路径超出文件管理器范围，且无法自动切换根路径` });
@@ -1067,7 +1124,7 @@ export default function FilesPage() {
                           } else if (abs.startsWith('/') && currentRoot && currentRoot !== '/') {
                             try {
                               await systemApi.setRoot('/');
-                              setCurrentRoot('/');
+                              applyRoot('/');
                               loadFiles(abs);
                             } catch {
                               addNotification({ type: 'error', message: '路径超出文件管理器范围，且无法自动切换根路径' });
